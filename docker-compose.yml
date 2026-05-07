@@ -1,0 +1,28 @@
+services:
+  llm-compatible-api:
+    build:
+      context: .
+    image: postor/llm-compatible-api:latest
+    container_name: llm-compatible-api
+    restart: unless-stopped
+    entrypoint: ["node", "/app/packages/openai-oauth/dist/cli.js"]
+    command: ["serve"]
+    environment:
+      - LLM_COMPATIBLE_API_SOURCE
+      - LLM_COMPATIBLE_API_BASE_URL
+      - LLM_COMPATIBLE_API_API_KEY
+      - LLM_COMPATIBLE_API_HOST
+      - LLM_COMPATIBLE_API_PORT
+      - LLM_COMPATIBLE_API_MODELS
+      - LLM_COMPATIBLE_API_DEFAULT_MODEL
+      - LLM_COMPATIBLE_API_HEADERS
+      - OPENAI_API_KEY
+      - ANTHROPIC_API_KEY
+      - ANTHROPIC_AUTH_TOKEN
+    ports:
+      - "${LLM_COMPATIBLE_API_PORT:-10531}:${LLM_COMPATIBLE_API_PORT:-10531}"
+    volumes:
+      - llm-compatible-api-data:/root/.llm-compatible-api
+
+volumes:
+  llm-compatible-api-data:
