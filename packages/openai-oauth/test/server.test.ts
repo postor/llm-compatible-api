@@ -48,13 +48,13 @@ describe("openai oauth server", () => {
 					id: "gpt-5.2",
 					object: "model",
 					created: 0,
-					owned_by: "codex-oauth",
+					owned_by: "codex",
 				},
 				{
 					id: "gpt-5.1-codex",
 					object: "model",
 					created: 0,
-					owned_by: "codex-oauth",
+					owned_by: "codex",
 				},
 			],
 		})
@@ -103,13 +103,13 @@ describe("openai oauth server", () => {
 					id: "gpt-5.2",
 					object: "model",
 					created: 0,
-					owned_by: "codex-oauth",
+					owned_by: "codex",
 				},
 				{
 					id: "gpt-5.1-codex",
 					object: "model",
 					created: 0,
-					owned_by: "codex-oauth",
+					owned_by: "codex",
 				},
 			],
 		})
@@ -173,6 +173,8 @@ describe("openai oauth server", () => {
 		await expect(health.json()).resolves.toEqual({
 			ok: true,
 			replay_state: "stateless",
+			source: "codex",
+			targets: ["openai", "anthropic"],
 		})
 	})
 
@@ -294,6 +296,61 @@ describe("openai oauth server", () => {
 			expect.objectContaining({
 				type: "chat_error",
 				path: "/v1/chat/completions",
+				message: "`messages` must be an array.",
+			}),
+		)
+	})
+
+	test("rejects responses passthrough when the active source is anthropic", async () => {
+		const handler = createOpenAIOAuthFetchHandler({
+			sourceKind: "anthropic",
+			models: ["claude-sonnet-4-6"],
+			apiKey: "test-key",
+		})
+
+		const response = await handler(
+			new Request("http://localhost/v1/responses", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					model: "claude-sonnet-4-6",
+					input: [],
+				}),
+			}),
+		)
+
+		expect(response.status).toBe(501)
+	})
+
+	test("emits an anthropic error when messages is invalid", async () => {
+		const requestLogger = vi.fn()
+		const handler = createOpenAIOAuthFetchHandler({
+			requestLogger,
+			sourceKind: "anthropic",
+			models: ["claude-sonnet-4-6"],
+			apiKey: "test-key",
+		})
+
+		const response = await handler(
+			new Request("http://localhost/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					model: "claude-sonnet-4-6",
+					messages: "not-an-array",
+				}),
+			}),
+		)
+
+		expect(response.status).toBe(400)
+		expect(requestLogger).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: "anthropic_error",
+				path: "/v1/messages",
 				message: "`messages` must be an array.",
 			}),
 		)

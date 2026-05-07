@@ -1,5 +1,4 @@
 import {
-	type CodexOAuthClient,
 	collectCompletedResponseFromSse,
 	normalizeCodexResponsesBody,
 } from "../../openai-oauth-core/src/index.js"
@@ -12,16 +11,24 @@ import {
 	toJsonResponse,
 	usesServerReplayState,
 } from "./shared.js"
-import type { OpenAIOAuthServerOptions } from "./types.js"
+import type { BridgeRuntime, OpenAIOAuthServerOptions } from "./types.js"
 
 export const handleResponsesRequest = async (
 	request: Request,
 	settings: OpenAIOAuthServerOptions,
-	client: CodexOAuthClient,
+	runtime: BridgeRuntime,
 ): Promise<Response> => {
 	const body = await request.json()
 	if (!isRecord(body)) {
 		return toErrorResponse("Request body must be a JSON object.")
+	}
+
+	if (!runtime.supportsOpenAIResponses || !runtime.requestOpenAIResponses) {
+		return toErrorResponse(
+			"The active source does not support OpenAI /v1/responses passthrough. Use /v1/chat/completions or /v1/messages instead.",
+			501,
+			"unsupported_source",
+		)
 	}
 
 	if (usesServerReplayState(body)) {
@@ -31,19 +38,14 @@ export const handleResponsesRequest = async (
 	}
 
 	const wantsStream = body.stream === true
-	const upstream = await client.request("/responses", {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-		},
-		body: JSON.stringify(
-			normalizeCodexResponsesBody(body, {
-				forceStream: true,
-				instructions: settings.instructions,
-				store: settings.store,
-			}),
-		),
-	})
+	const upstream = await runtime.requestOpenAIResponses(
+		normalizeCodexResponsesBody(body, {
+			forceStream: true,
+			instructions: settings.instructions,
+			store: settings.store,
+		}),
+		request.signal,
+	)
 
 	if (!upstream.ok) {
 		return copyUpstreamResponse(upstream)

@@ -94,6 +94,7 @@ describe("loadAuthTokens", () => {
 				ensureFresh: false,
 			})
 
+			expect(result.mode).toBe("oauth")
 			expect(result.accessToken).toBe("access")
 			expect(result.accountId).toBe("acct-1")
 			expect(result.sourcePath).toBe(authPath)
@@ -141,6 +142,7 @@ describe("loadAuthTokens", () => {
 				now: () => now,
 			})
 
+			expect(result.mode).toBe("oauth")
 			expect(result.accessToken).toBe("new-access")
 			expect(result.accountId).toBe("acct-2")
 			expect(result.refreshToken).toBe("new-refresh")
@@ -196,6 +198,35 @@ describe("loadAuthTokens", () => {
 					method: "POST",
 				}),
 			)
+		} finally {
+			await fs.rm(root, { recursive: true, force: true })
+		}
+	})
+
+	test("returns OPENAI_API_KEY when oauth tokens are absent", async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), "auth-api-key-"))
+		const authPath = path.join(root, "auth.json")
+		const fetch =
+			globalThis.fetch ??
+			(async () => {
+				throw new Error("unused")
+			})
+
+		try {
+			await writeAuthFile(authPath, {
+				OPENAI_API_KEY: "sk-test-api-key",
+			})
+
+			const result = await loadAuthTokens({
+				authFilePath: authPath,
+				fetch,
+				ensureFresh: false,
+			})
+
+			expect(result.mode).toBe("api-key")
+			expect(result.apiKey).toBe("sk-test-api-key")
+			expect(result.authorizationToken).toBe("sk-test-api-key")
+			expect(result.sourcePath).toBe(authPath)
 		} finally {
 			await fs.rm(root, { recursive: true, force: true })
 		}

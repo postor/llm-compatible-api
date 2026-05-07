@@ -28,6 +28,23 @@ const createAuthFile = async (): Promise<string> => {
 	return authPath
 }
 
+const createApiKeyAuthFile = async (): Promise<string> => {
+	const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-oauth-core-api-"))
+	const authPath = path.join(root, "auth.json")
+	await fs.writeFile(
+		authPath,
+		JSON.stringify(
+			{
+				OPENAI_API_KEY: "sk-test-api-key",
+			},
+			null,
+			2,
+		),
+		"utf-8",
+	)
+	return authPath
+}
+
 afterEach(() => {
 	vi.restoreAllMocks()
 })
@@ -136,6 +153,57 @@ describe("createCodexOAuthFetch", () => {
 
 		expect(headers.get("authorization")).toMatch(/^Bearer /)
 		expect(headers.get("chatgpt-account-id")).toBeTruthy()
+		expect(headers.get("openai-beta")).toBe("responses=experimental")
+		expect(body.instructions).toBe("core-instructions")
+		expect(body.store).toBe(false)
+		expect(body.max_output_tokens).toBeUndefined()
+
+		await fs.rm(path.dirname(authFilePath), {
+			recursive: true,
+			force: true,
+		})
+	})
+
+	test("injects API key auth headers for standard upstreams", async () => {
+		const authFilePath = await createApiKeyAuthFile()
+		const fetch = vi.fn(async () => new Response(null, { status: 200 }))
+
+		const oauthFetch = createCodexOAuthFetch({
+			authFilePath,
+			baseURL: "https://example.test/v1",
+			ensureFresh: false,
+			fetch,
+			instructions: "core-instructions",
+		})
+
+		await oauthFetch("https://example.test/v1/responses", {
+			method: "POST",
+			headers: {
+				Authorization: "Bearer ignored",
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				model: "gpt-5.2",
+				max_output_tokens: 5,
+			}),
+		})
+
+		expect(fetch).toHaveBeenCalledTimes(1)
+		expect(fetch).toHaveBeenCalledWith(
+			"https://example.test/v1/responses",
+			expect.objectContaining({
+				headers: expect.any(Headers),
+				body: expect.any(String),
+			}),
+		)
+
+		const [, init] = fetch.mock.calls[0] ?? []
+		const headers = new Headers(init?.headers)
+		const body = JSON.parse(String(init?.body))
+
+		expect(headers.get("authorization")).toBe("Bearer sk-test-api-key")
+		expect(headers.get("chatgpt-account-id")).toBeNull()
+		expect(headers.get("openai-beta")).toBeNull()
 		expect(body.instructions).toBe("core-instructions")
 		expect(body.store).toBe(false)
 		expect(body.max_output_tokens).toBeUndefined()
@@ -332,6 +400,36 @@ describe("createCodexOAuthFetch", () => {
 				force: true,
 			})
 		}
+	})
+
+	test("rejects API key auth against the default codex upstream", async () => {
+		const authFilePath = await createApiKeyAuthFile()
+		const fetch = vi.fn(async () => new Response(null, { status: 200 }))
+
+		const oauthFetch = createCodexOAuthFetch({
+			authFilePath,
+			ensureFresh: false,
+			fetch,
+		})
+
+		await expect(
+			oauthFetch("responses", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					model: "gpt-5.2",
+				}),
+			}),
+		).rejects.toThrow(
+			"OPENAI_API_KEY was found, but the default ChatGPT Codex upstream requires ChatGPT OAuth tokens.",
+		)
+
+		await fs.rm(path.dirname(authFilePath), {
+			recursive: true,
+			force: true,
+		})
 	})
 })
 

@@ -25,8 +25,11 @@ type AuthFile = {
 }
 
 export type EffectiveAuth = {
-	accessToken: string
-	accountId: string
+	mode: "oauth" | "api-key"
+	authorizationToken: string
+	accessToken?: string
+	apiKey?: string
+	accountId?: string
 	idToken?: string
 	refreshToken?: string
 	sourcePath?: string
@@ -38,6 +41,8 @@ export type AuthLoaderOptions = {
 	issuer?: string
 	tokenUrl?: string
 	authFilePath?: string
+	apiKey?: string
+	apiKeyEnvVar?: string
 	fetch: FetchFunction
 	ensureFresh?: boolean
 	now?: () => Date
@@ -317,6 +322,9 @@ const normalizeTokens = (tokens: StoredTokens | undefined): StoredTokens => {
 	}
 }
 
+const normalizeApiKey = (value: unknown): string | undefined =>
+	typeof value === "string" && value.length > 0 ? value : undefined
+
 export const loadAuthTokens = async (
 	options: AuthLoaderOptions,
 ): Promise<EffectiveAuth> => {
@@ -325,6 +333,8 @@ export const loadAuthTokens = async (
 		issuer = DEFAULT_ISSUER,
 		tokenUrl,
 		authFilePath,
+		apiKey: explicitApiKey,
+		apiKeyEnvVar,
 		fetch,
 		ensureFresh = true,
 		now = () => new Date(),
@@ -339,6 +349,14 @@ export const loadAuthTokens = async (
 	const readResult = await readAuthFile(resolveAuthFileCandidates(authFilePath))
 	const authData = readResult.data ?? {}
 	const tokens = normalizeTokens(authData.tokens)
+	const apiKey =
+		normalizeApiKey(explicitApiKey) ??
+		normalizeApiKey(
+			apiKeyEnvVar && apiKeyEnvVar.length > 0
+				? process.env[apiKeyEnvVar]
+				: process.env.OPENAI_API_KEY,
+		) ??
+		normalizeApiKey(authData.OPENAI_API_KEY)
 
 	let accessToken = tokens.access_token
 	let idToken = tokens.id_token
@@ -381,6 +399,33 @@ export const loadAuthTokens = async (
 		}
 	}
 
+	if (
+		typeof accessToken === "string" &&
+		accessToken.length > 0 &&
+		typeof accountId === "string" &&
+		accountId.length > 0
+	) {
+		return {
+			mode: "oauth",
+			authorizationToken: accessToken,
+			accessToken,
+			accountId,
+			idToken,
+			refreshToken,
+			sourcePath: readResult.path ?? resolveWritePath(authFilePath),
+			lastRefresh,
+		}
+	}
+
+	if (typeof apiKey === "string" && apiKey.length > 0) {
+		return {
+			mode: "api-key",
+			authorizationToken: apiKey,
+			apiKey,
+			sourcePath: readResult.path ?? authFilePath,
+		}
+	}
+
 	if (typeof accessToken !== "string" || accessToken.length === 0) {
 		throw new Error(
 			"ChatGPT access token not found. Run `codex login` to create auth.json.",
@@ -393,12 +438,5 @@ export const loadAuthTokens = async (
 		)
 	}
 
-	return {
-		accessToken,
-		accountId,
-		idToken,
-		refreshToken,
-		sourcePath: readResult.path ?? resolveWritePath(authFilePath),
-		lastRefresh,
-	}
+	throw new Error("No usable auth credentials were found.")
 }

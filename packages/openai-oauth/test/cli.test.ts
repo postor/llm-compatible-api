@@ -6,7 +6,7 @@ import {
 } from "../src/cli-app.js"
 import { toStartupMessage } from "../src/cli-logging.js"
 
-describe("openai oauth cli", () => {
+describe("llm-compatible-api cli", () => {
 	test("parses kebab-case flags into server options", () => {
 		const parsed = parseCliArgs([
 			"--host",
@@ -53,7 +53,9 @@ describe("openai oauth cli", () => {
 		).toBe(
 			[
 				"OpenAI-compatible endpoint ready at http://127.0.0.1:10531/v1",
-				"Use this as your OpenAI base URL. No API key is required.",
+				"Anthropic-compatible endpoint ready at http://127.0.0.1:10531",
+				"Source: openai | No client-side API key is required.",
+				"Use the /v1 base URL for OpenAI clients and the root URL for Anthropic clients.",
 				"",
 				"Available Models: gpt-5.4, gpt-5.3-codex",
 			].join("\n"),
@@ -62,7 +64,7 @@ describe("openai oauth cli", () => {
 
 	test("formats a missing explicit auth file message", () => {
 		expect(toMissingAuthFileMessage("/tmp/missing-auth.json")).toContain(
-			"Run `npx @openai/codex login` and try again.",
+			"Run `npx @openai/codex login`, or set an API key env var, and try again.",
 		)
 		expect(toMissingAuthFileMessage("/tmp/missing-auth.json")).toContain(
 			"/tmp/missing-auth.json",
@@ -70,8 +72,10 @@ describe("openai oauth cli", () => {
 	})
 
 	test("does not use hidden environment variable overrides", () => {
-		vi.stubEnv("HOST", "0.0.0.0")
-		vi.stubEnv("PORT", "3333")
+		const previousHost = process.env.HOST
+		const previousPort = process.env.PORT
+		process.env.HOST = "0.0.0.0"
+		process.env.PORT = "3333"
 
 		expect(toServerOptions({})).toMatchObject({
 			host: undefined,
@@ -79,6 +83,16 @@ describe("openai oauth cli", () => {
 			codexVersion: undefined,
 		})
 
-		vi.unstubAllEnvs()
+		if (previousHost === undefined) {
+			delete process.env.HOST
+		} else {
+			process.env.HOST = previousHost
+		}
+
+		if (previousPort === undefined) {
+			delete process.env.PORT
+		} else {
+			process.env.PORT = previousPort
+		}
 	})
 })

@@ -1,5 +1,4 @@
 import { generateText } from "ai"
-import type { OpenAIOAuthProvider } from "../../openai-oauth-provider/src/index.js"
 import {
 	createToolSet,
 	toModelMessages,
@@ -7,6 +6,7 @@ import {
 } from "./chat-messages.js"
 import { streamChatCompletions } from "./chat-stream.js"
 import { emitRequestLog } from "./logging.js"
+import { toOpenAITargetProviderOptions } from "./model-options.js"
 import {
 	isRecord,
 	mapFinishReason,
@@ -16,6 +16,7 @@ import {
 	toUsage,
 } from "./shared.js"
 import type {
+	BridgeRuntime,
 	ChatCompletionResultShape,
 	ChatRequest,
 	OpenAIOAuthServerLogEvent,
@@ -60,7 +61,7 @@ const toChatCompletionResponse = (
 
 export const handleChatCompletionsRequest = async (
 	request: Request,
-	provider: OpenAIOAuthProvider,
+	runtime: BridgeRuntime,
 	logger: ((event: OpenAIOAuthServerLogEvent) => void) | undefined,
 ): Promise<Response> => {
 	const requestId = crypto.randomUUID()
@@ -86,7 +87,7 @@ export const handleChatCompletionsRequest = async (
 	})
 
 	if (body.stream === true) {
-		return streamChatCompletions(body, provider, {
+		return streamChatCompletions(body, runtime, {
 			logger,
 			requestId,
 			startedAt,
@@ -95,7 +96,7 @@ export const handleChatCompletionsRequest = async (
 
 	try {
 		const result = await generateText({
-			model: provider(body.model ?? "gpt-5.2"),
+			model: runtime.modelFactory(body.model ?? runtime.defaultModel),
 			messages: toModelMessages(body.messages),
 			tools: createToolSet(body.tools),
 			toolChoice: toToolChoice(body.tool_choice),
@@ -108,12 +109,7 @@ export const handleChatCompletionsRequest = async (
 						? body.stop
 						: undefined,
 			maxOutputTokens: body.max_tokens,
-			providerOptions: {
-				openai: {
-					parallelToolCalls: body.parallel_tool_calls,
-					reasoningEffort: body.reasoning_effort,
-				},
-			},
+			providerOptions: toOpenAITargetProviderOptions(runtime.sourceKind, body),
 		})
 
 		emitRequestLog(logger, {

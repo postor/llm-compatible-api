@@ -1,7 +1,7 @@
 {
-	"name": "openai-oauth-monorepo",
+	"name": "llm-compatible-api-monorepo",
 	"private": true,
-	"description": "Free OpenAI API access with your ChatGPT account.",
+	"description": "Bridge one active upstream source into local OpenAI and Anthropic compatible endpoints.",
 	"packageManager": "bun@1.2.18",
 	"workspaces": [
 		"packages/*"
@@ -23,7 +23,7 @@
 	"author": "EvanZhouDev",
 	"license": "AGPL-3.0-only",
 	"bugs": {
-		"url": "https://github.com/EvanZhouDev/openai-oauth/issues"
+		"url": "https://github.com/postor/llm-compatible-api/issues"
 	},
-	"homepage": "https://github.com/EvanZhouDev/openai-oauth#readme"
+	"homepage": "https://github.com/postor/llm-compatible-api#readme"
 }

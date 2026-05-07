@@ -33,10 +33,45 @@ type OpenAIConfig = {
 }
 
 const emptyUsage = (): LanguageModelV3Usage => ({
-	inputTokens: undefined,
-	outputTokens: undefined,
-	totalTokens: undefined,
+	inputTokens: {
+		total: undefined,
+		noCache: undefined,
+		cacheRead: undefined,
+		cacheWrite: undefined,
+	},
+	outputTokens: {
+		total: undefined,
+		text: undefined,
+		reasoning: undefined,
+	},
+	raw: undefined,
 })
+
+const toFinishReason = (
+	value: string | LanguageModelV3FinishReason | undefined,
+): LanguageModelV3FinishReason => {
+	if (typeof value === "object" && value !== null) {
+		return value
+	}
+
+	switch (value) {
+		case "stop":
+		case undefined:
+			return { unified: "stop", raw: value }
+		case "length":
+		case "max_output_tokens":
+			return { unified: "length", raw: value }
+		case "content-filter":
+		case "content_filter":
+			return { unified: "content-filter", raw: value }
+		case "tool-calls":
+			return { unified: "tool-calls", raw: value }
+		case "error":
+			return { unified: "error", raw: value }
+		default:
+			return { unified: "other", raw: value }
+	}
+}
 
 const mergeProviderMetadata = (
 	left: SharedV3ProviderMetadata | undefined,
@@ -66,7 +101,10 @@ class CodexResponsesLanguageModel extends OpenAIResponsesLanguageModel {
 		const activeTextById = new Map<string, LanguageModelV3Content>()
 		const activeReasoningById = new Map<string, LanguageModelV3Content>()
 
-		let finishReason: LanguageModelV3FinishReason = "unknown"
+		let finishReason: LanguageModelV3FinishReason = {
+			unified: "other",
+			raw: undefined,
+		}
 		let usage: LanguageModelV3Usage = emptyUsage()
 		let providerMetadata: SharedV3ProviderMetadata | undefined
 		let responseMetadata: LanguageModelV3ResponseMetadata | undefined
@@ -189,6 +227,7 @@ class CodexResponsesLanguageModel extends OpenAIResponsesLanguageModel {
 						break
 					}
 
+					case "tool-approval-request":
 					case "tool-call":
 					case "tool-result":
 					case "file":
@@ -198,7 +237,7 @@ class CodexResponsesLanguageModel extends OpenAIResponsesLanguageModel {
 					}
 
 					case "finish": {
-						finishReason = part.finishReason
+						finishReason = toFinishReason(part.finishReason)
 						usage = part.usage
 						providerMetadata = part.providerMetadata
 						break

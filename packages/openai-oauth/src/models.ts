@@ -23,6 +23,17 @@ type RegistryPackageResponse = {
 	version?: unknown
 }
 
+type StandardModelEntry = {
+	id?: unknown
+}
+
+type StandardModelListResponse = {
+	data?: StandardModelEntry[]
+	error?: {
+		message?: unknown
+	}
+}
+
 type ModelResolver = () => Promise<string[]>
 
 type RunCommand = (
@@ -57,6 +68,8 @@ const uniqueStrings = (values: string[]): string[] => {
 
 	return result
 }
+
+const withoutTrailingSlash = (value: string): string => value.replace(/\/+$/, "")
 
 const normalizeVersion = (value: string | undefined): string | undefined => {
 	if (typeof value !== "string") {
@@ -167,7 +180,7 @@ export const resetCodexClientVersionCache = (): void => {
 
 const toUpstreamErrorMessage = (bodyText: string | undefined): string => {
 	if (typeof bodyText !== "string" || bodyText.length === 0) {
-		return "Failed to load models from Codex."
+		return "Failed to load models from the upstream provider."
 	}
 
 	try {
@@ -183,7 +196,16 @@ const toUpstreamErrorMessage = (bodyText: string | undefined): string => {
 	return bodyText
 }
 
-const fetchAvailableModels = async (
+const usesCodexModelCatalog = (baseURL: string): boolean => {
+	try {
+		const parsed = new URL(baseURL)
+		return withoutTrailingSlash(parsed.pathname).endsWith("/backend-api/codex")
+	} catch {
+		return false
+	}
+}
+
+const fetchAvailableCodexModels = async (
 	client: CodexOAuthClient,
 	dependencies: ModelResolverDependencies = {},
 ): Promise<string[]> => {
@@ -223,6 +245,40 @@ const fetchAvailableModels = async (
 	return models
 }
 
+const fetchAvailableStandardModels = async (
+	client: CodexOAuthClient,
+): Promise<string[]> => {
+	const response = await client.request("/models")
+	const bodyText = await response.text()
+
+	if (!response.ok) {
+		throw new Error(toUpstreamErrorMessage(bodyText))
+	}
+
+	let parsed: StandardModelListResponse
+	try {
+		parsed = JSON.parse(bodyText) as StandardModelListResponse
+	} catch {
+		throw new Error("The upstream provider returned an invalid models response.")
+	}
+
+	if (!Array.isArray(parsed.data)) {
+		throw new Error("The upstream provider returned a malformed models response.")
+	}
+
+	const models = uniqueStrings(
+		parsed.data
+			.map((model) => model.id)
+			.filter((id): id is string => typeof id === "string" && id.length > 0),
+	)
+
+	if (models.length === 0) {
+		throw new Error("The upstream provider returned an empty models list.")
+	}
+
+	return models
+}
+
 export const resolveOpenAIOAuthModels = async (
 	client: CodexOAuthClient,
 	configuredModels: string[] | undefined,
@@ -232,7 +288,9 @@ export const resolveOpenAIOAuthModels = async (
 		return uniqueStrings(configuredModels)
 	}
 
-	return fetchAvailableModels(client, dependencies)
+	return usesCodexModelCatalog(client.baseURL)
+		? fetchAvailableCodexModels(client, dependencies)
+		: fetchAvailableStandardModels(client)
 }
 
 export const createModelResolver = (

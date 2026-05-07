@@ -1,4 +1,4 @@
-const REGISTRY_URL = "https://registry.npmjs.org/openai-oauth/latest"
+const REGISTRY_URL = "https://registry.npmjs.org/llm-compatible-api/latest"
 
 type RegistryPackageResponse = {
 	version?: unknown
@@ -80,7 +80,7 @@ export const checkForOpenAIOAuthUpdates = async (
 	}
 
 	dependencies.onWarning?.(
-		`A newer version of openai-oauth is available: ${normalizedCurrentVersion} -> ${latestVersion}.\nRun \`npx openai-oauth@latest\` to use the newest version.`,
+		`A newer version of llm-compatible-api is available: ${normalizedCurrentVersion} -> ${latestVersion}.\nRun \`npx llm-compatible-api@latest\` to use the newest version.`,
 	)
 }
 

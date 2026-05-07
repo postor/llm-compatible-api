@@ -1,13 +1,14 @@
 import { streamText } from "ai"
-import type { OpenAIOAuthProvider } from "../../openai-oauth-provider/src/index.js"
 import {
 	createToolSet,
 	toModelMessages,
 	toToolChoice,
 } from "./chat-messages.js"
 import { emitRequestLog } from "./logging.js"
+import { toOpenAITargetProviderOptions } from "./model-options.js"
 import { corsHeaders, mapFinishReason, sseHeaders, toUsage } from "./shared.js"
 import type {
+	BridgeRuntime,
 	ChatRequest,
 	OpenAIOAuthServerLogEvent,
 	UsageLike,
@@ -40,7 +41,7 @@ const logChatStreamResult = (
 
 export const streamChatCompletions = async (
 	request: ChatRequest,
-	provider: OpenAIOAuthProvider,
+	runtime: BridgeRuntime,
 	logContext: {
 		logger?: (event: OpenAIOAuthServerLogEvent) => void
 		requestId: string
@@ -52,7 +53,7 @@ export const streamChatCompletions = async (
 	const created = Math.floor(Date.now() / 1000)
 	const id = `chatcmpl_${crypto.randomUUID()}`
 	const result = streamText({
-		model: provider(request.model ?? "gpt-5.2"),
+		model: runtime.modelFactory(request.model ?? runtime.defaultModel),
 		messages: toModelMessages(request.messages ?? []),
 		tools: createToolSet(request.tools),
 		toolChoice: toToolChoice(request.tool_choice),
@@ -65,12 +66,7 @@ export const streamChatCompletions = async (
 					? request.stop
 					: undefined,
 		maxOutputTokens: request.max_tokens,
-		providerOptions: {
-			openai: {
-				parallelToolCalls: request.parallel_tool_calls,
-				reasoningEffort: request.reasoning_effort,
-			},
-		},
+		providerOptions: toOpenAITargetProviderOptions(runtime.sourceKind, request),
 	})
 
 	const stream = new ReadableStream<Uint8Array>({

@@ -17,7 +17,7 @@ export const createRequestLogger = (
 	return (event) => {
 		console.log(
 			JSON.stringify({
-				source: "openai-oauth",
+				source: "llm-compatible-api",
 				timestamp: new Date().toISOString(),
 				...event,
 			}),

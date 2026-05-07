@@ -1,6 +1,6 @@
 # openai-oauth-provider
 
-[GitHub](https://github.com/EvanZhouDev/openai-oauth) | [Legal](#legal)
+[GitHub](https://github.com/postor/llm-compatible-api) | [Legal](#legal)
 
 Vercel AI SDK provider that uses your ChatGPT account.
 

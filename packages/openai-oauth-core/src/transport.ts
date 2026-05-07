@@ -23,6 +23,10 @@ export type CodexOAuthSettings = Omit<AuthLoaderOptions, "fetch"> & {
 	responsesState?: CodexResponsesState | false
 }
 
+type FetchWithPreconnect = FetchFunction & {
+	preconnect?: (url: string | URL) => void
+}
+
 type RequestParts = {
 	url: string
 	method?: string
@@ -71,9 +75,23 @@ class AuthManager {
 
 	async headers(): Promise<Record<string, string>> {
 		const auth = this.current ?? (await this.ensure())
+		const baseURL = resolveBaseURL(this.settings.baseURL)
+
+		if (auth.mode === "api-key") {
+			if (baseURL === DEFAULT_CODEX_BASE_URL) {
+				throw new Error(
+					"OPENAI_API_KEY was found, but the default ChatGPT Codex upstream requires ChatGPT OAuth tokens. Set --base-url to an OpenAI-compatible /v1 endpoint or sign in with ChatGPT.",
+				)
+			}
+
+			return {
+				Authorization: `Bearer ${auth.authorizationToken}`,
+			}
+		}
+
 		return {
-			Authorization: `Bearer ${auth.accessToken}`,
-			"chatgpt-account-id": auth.accountId,
+			Authorization: `Bearer ${auth.authorizationToken}`,
+			"chatgpt-account-id": auth.accountId ?? "",
 			"OpenAI-Beta": "responses=experimental",
 		}
 	}
@@ -306,7 +324,7 @@ const captureResponsesState = (
 export const createCodexOAuthFetch = (
 	settings: CodexOAuthSettings = {},
 ): FetchFunction => {
-	const fetch = pickFetch(settings.fetch)
+	const fetch = pickFetch(settings.fetch) as FetchWithPreconnect
 	const authManager = new AuthManager(settings, fetch)
 	const baseURL = resolveBaseURL(settings.baseURL)
 	const responsesState =
@@ -357,7 +375,8 @@ export const createCodexOAuthFetch = (
 	}
 
 	if (typeof fetch.preconnect === "function") {
-		codexFetch.preconnect = fetch.preconnect.bind(fetch)
+		;(codexFetch as FetchWithPreconnect).preconnect =
+			fetch.preconnect.bind(fetch)
 	}
 
 	return codexFetch

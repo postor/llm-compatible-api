@@ -16,7 +16,7 @@ const formatWarningMessage = (
 	provider: string,
 	model: string,
 ): string => {
-	const prefix = `openai-oauth Warning (${provider} / ${model}):`
+	const prefix = `llm-compatible-api Warning (${provider} / ${model}):`
 
 	switch (warning.type) {
 		case "unsupported": {
@@ -66,11 +66,19 @@ export const dim = (text: string, options?: { useColor?: boolean }): string =>
 export const toStartupMessage = (
 	baseUrl: string,
 	availableModels: string[],
-	options?: { useColor?: boolean },
+	options?: { useColor?: boolean; sourceKind?: string },
 ): string =>
 	[
 		`OpenAI-compatible endpoint ready at ${underline(baseUrl, options)}`,
-		dim("Use this as your OpenAI base URL. No API key is required.", options),
+		`Anthropic-compatible endpoint ready at ${underline(baseUrl.replace(/\/v1$/, ""), options)}`,
+		dim(
+			`Source: ${options?.sourceKind ?? "openai"} | No client-side API key is required.`,
+			options,
+		),
+		dim(
+			"Use the /v1 base URL for OpenAI clients and the root URL for Anthropic clients.",
+			options,
+		),
 		"",
 		`Available Models: ${availableModels.join(", ")}`,
 	].join("\n")
@@ -87,7 +95,7 @@ export const installCliWarningLogger = (): void => {
 			hasLoggedWarningSystemMessage = true
 			console.info("")
 			console.info(
-				"openai-oauth Warning System: To turn off warning logging, set the AI_SDK_LOG_WARNINGS global to false.",
+				"llm-compatible-api Warning System: To turn off warning logging, set the AI_SDK_LOG_WARNINGS global to false.",
 			)
 		}
 

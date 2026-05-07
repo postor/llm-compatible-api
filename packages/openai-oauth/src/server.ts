@@ -1,17 +1,11 @@
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
-import {
-	type CodexOAuthSettings,
-	createCodexOAuthClient,
-} from "../../openai-oauth-core/src/index.js"
-import {
-	createOpenAIOAuth,
-	type OpenAIOAuthProvider,
-} from "../../openai-oauth-provider/src/index.js"
+import { type CodexOAuthSettings } from "../../openai-oauth-core/src/index.js"
+import { handleAnthropicMessagesRequest } from "./anthropic-messages.js"
 import { handleChatCompletionsRequest } from "./chat-completions.js"
 import { createRequestLogger } from "./logging.js"
-import { createModelResolver } from "./models.js"
 import { handleResponsesRequest } from "./responses.js"
+import { createBridgeRuntime } from "./runtime.js"
 import {
 	corsHeaders,
 	DEFAULT_HOST,
@@ -30,9 +24,7 @@ import type {
 const handleRoutes = async (
 	request: Request,
 	settings: OpenAIOAuthServerOptions,
-	provider: OpenAIOAuthProvider,
-	client: ReturnType<typeof createCodexOAuthClient>,
-	resolveModels: () => Promise<string[]>,
+	runtime: ReturnType<typeof createBridgeRuntime>,
 	requestLogger: ReturnType<typeof createRequestLogger>,
 ): Promise<Response> => {
 	if (request.method === "OPTIONS") {
@@ -47,19 +39,21 @@ const handleRoutes = async (
 		return toJsonResponse({
 			ok: true,
 			replay_state: "stateless",
+			source: runtime.sourceKind,
+			targets: ["openai", "anthropic"],
 		})
 	}
 
 	if (request.method === "GET" && url.pathname === "/v1/models") {
 		try {
-			const models = await resolveModels()
+			const models = await runtime.resolveModels()
 			return toJsonResponse({
 				object: "list",
 				data: models.map((id) => ({
 					id,
 					object: "model",
 					created: 0,
-					owned_by: "codex-oauth",
+					owned_by: runtime.sourceKind,
 				})),
 			})
 		} catch (error) {
@@ -72,11 +66,15 @@ const handleRoutes = async (
 	}
 
 	if (request.method === "POST" && url.pathname === "/v1/responses") {
-		return handleResponsesRequest(request, settings, client)
+		return handleResponsesRequest(request, settings, runtime)
 	}
 
 	if (request.method === "POST" && url.pathname === "/v1/chat/completions") {
-		return handleChatCompletionsRequest(request, provider, requestLogger)
+		return handleChatCompletionsRequest(request, runtime, requestLogger)
+	}
+
+	if (request.method === "POST" && url.pathname === "/v1/messages") {
+		return handleAnthropicMessagesRequest(request, runtime, requestLogger)
 	}
 
 	return toErrorResponse("Route not found.", 404, "not_found_error")
@@ -89,23 +87,12 @@ export const createOpenAIOAuthFetchHandler = (
 		...settings,
 		responsesState: false,
 	}
-	const client = createCodexOAuthClient(sharedSettings)
-	const provider = createOpenAIOAuth(sharedSettings)
-	const resolveModels = createModelResolver(client, settings.models, {
-		codexVersion: settings.codexVersion,
-	})
+	const runtime = createBridgeRuntime(sharedSettings)
 	const requestLogger = createRequestLogger(settings)
 
 	return async (request) => {
 		try {
-			return await handleRoutes(
-				request,
-				settings,
-				provider,
-				client,
-				resolveModels,
-				requestLogger,
-			)
+			return await handleRoutes(request, settings, runtime, requestLogger)
 		} catch (error) {
 			return toErrorResponse(
 				error instanceof Error ? error.message : "Unexpected server error.",

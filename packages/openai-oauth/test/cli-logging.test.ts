@@ -8,7 +8,7 @@ import {
 
 describe("cli logging", () => {
 	afterEach(() => {
-		vi.unstubAllGlobals()
+		delete globalThis.AI_SDK_LOG_WARNINGS
 		vi.restoreAllMocks()
 	})
 
@@ -21,7 +21,9 @@ describe("cli logging", () => {
 		).toBe(
 			[
 				"OpenAI-compatible endpoint ready at http://127.0.0.1:10531/v1",
-				"Use this as your OpenAI base URL. No API key is required.",
+				"Anthropic-compatible endpoint ready at http://127.0.0.1:10531",
+				"Source: openai | No client-side API key is required.",
+				"Use the /v1 base URL for OpenAI clients and the root URL for Anthropic clients.",
 				"",
 				"Available Models: gpt-5.4, gpt-5.3-codex",
 			].join("\n"),
@@ -53,10 +55,10 @@ describe("cli logging", () => {
 		expect(info).toHaveBeenNthCalledWith(1, "")
 		expect(info).toHaveBeenNthCalledWith(
 			2,
-			"openai-oauth Warning System: To turn off warning logging, set the AI_SDK_LOG_WARNINGS global to false.",
+			"llm-compatible-api Warning System: To turn off warning logging, set the AI_SDK_LOG_WARNINGS global to false.",
 		)
 		expect(warn).toHaveBeenCalledWith(
-			'openai-oauth Warning (openai.responses / gpt-5.3-codex): The feature "temperature" is not supported. temperature is not supported for reasoning models',
+			'llm-compatible-api Warning (openai.responses / gpt-5.3-codex): The feature "temperature" is not supported. temperature is not supported for reasoning models',
 		)
 	})
 })

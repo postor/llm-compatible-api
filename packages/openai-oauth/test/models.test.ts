@@ -102,4 +102,37 @@ describe("model discovery", () => {
 
 		expect(models).toEqual(["gpt-5.4", "gpt-5.3-codex"])
 	})
+
+	test("loads standard upstream models for /v1 providers", async () => {
+		resetCodexClientVersionCache()
+
+		const models = await resolveOpenAIOAuthModels(
+			{
+				baseURL: "https://example.test/v1",
+				fetch: async () => {
+					throw new Error("upstream fetch should not run")
+				},
+				request: async () =>
+					new Response(
+						JSON.stringify({
+							object: "list",
+							data: [
+								{ id: "gpt-4.1" },
+								{ id: "o4-mini" },
+								{ id: "gpt-4.1" },
+							],
+						}),
+						{
+							status: 200,
+							headers: {
+								"Content-Type": "application/json",
+							},
+						},
+					),
+			},
+			undefined,
+		)
+
+		expect(models).toEqual(["gpt-4.1", "o4-mini"])
+	})
 })

@@ -1,10 +1,10 @@
 {
-	"name": "openai-oauth",
+	"name": "llm-compatible-api",
 	"version": "1.0.1",
-	"description": "Free OpenAI API access with your ChatGPT account.",
+	"description": "Bridge upstream LLM APIs into an OpenAI-compatible local endpoint.",
 	"type": "module",
 	"bin": {
-		"openai-oauth": "./dist/cli.js"
+		"llm-compatible-api": "./dist/cli.js"
 	},
 	"exports": {
 		".": {
@@ -24,6 +24,8 @@
 		"test:live": "LIVE_CODEX_E2E=1 vitest run test/live.e2e.test.ts"
 	},
 	"dependencies": {
+		"@ai-sdk/anthropic": "3.0.75",
+		"@ai-sdk/provider": "3.0.10",
 		"ai": "6.0.116",
 		"yargs": "^17.7.2"
 	},
@@ -40,7 +42,7 @@
 	"author": "EvanZhouDev",
 	"license": "AGPL-3.0-only",
 	"bugs": {
-		"url": "https://github.com/EvanZhouDev/openai-oauth/issues"
+		"url": "https://github.com/postor/llm-compatible-api/issues"
 	},
-	"homepage": "https://github.com/EvanZhouDev/openai-oauth#readme"
+	"homepage": "https://github.com/postor/llm-compatible-api#readme"
 }
