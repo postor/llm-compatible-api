@@ -214,6 +214,47 @@ describe("createCodexOAuthFetch", () => {
 		})
 	})
 
+	test("injects explicit API key auth headers without requiring auth.json", async () => {
+		const root = await fs.mkdtemp(
+			path.join(os.tmpdir(), "codex-oauth-core-explicit-api-"),
+		)
+		const authFilePath = path.join(root, "missing-auth.json")
+		const fetch = vi.fn(async () => new Response(null, { status: 200 }))
+
+		try {
+			const oauthFetch = createCodexOAuthFetch({
+				authFilePath,
+				apiKey: "sk-explicit-api-key",
+				baseURL: "https://example.test/v1",
+				ensureFresh: false,
+				fetch,
+			})
+
+			await oauthFetch("https://example.test/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					model: "gpt-5.2",
+					messages: [{ role: "user", content: "hello" }],
+				}),
+			})
+
+			expect(fetch).toHaveBeenCalledTimes(1)
+			const [, init] = fetch.mock.calls[0] ?? []
+			const headers = new Headers(init?.headers)
+
+			expect(headers.get("authorization")).toBe("Bearer sk-explicit-api-key")
+			expect(headers.get("chatgpt-account-id")).toBeNull()
+		} finally {
+			await fs.rm(root, {
+				recursive: true,
+				force: true,
+			})
+		}
+	})
+
 	test("preserves absolute codex urls without duplicating the upstream path", async () => {
 		const authFilePath = await createAuthFile()
 		const fetch = vi.fn(async () => new Response(null, { status: 200 }))

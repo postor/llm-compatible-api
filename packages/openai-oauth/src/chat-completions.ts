@@ -86,6 +86,22 @@ export const handleChatCompletionsRequest = async (
 		...summarizeChatRequest(body),
 	})
 
+	if (runtime.upstreamApiFormat === "chat" && runtime.requestChatCompletion) {
+		const upstream = await runtime.requestChatCompletion(body)
+		if (upstream.ok) {
+			emitRequestLog(logger, {
+				type: "chat_response",
+				requestId,
+				path: "/v1/chat/completions",
+				status: upstream.status,
+				stream: body.stream === true,
+				durationMs: Date.now() - startedAt,
+				usage: {},
+			})
+		}
+		return upstream
+	}
+
 	if (body.stream === true) {
 		return streamChatCompletions(body, runtime, {
 			logger,

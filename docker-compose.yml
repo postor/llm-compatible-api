@@ -4,13 +4,14 @@ services:
       context: .
     image: postor/llm-compatible-api:latest
     container_name: llm-compatible-api
-    restart: unless-stopped
+    restart: always
     entrypoint: ["node", "/app/packages/openai-oauth/dist/cli.js"]
     command: ["serve"]
     environment:
       - LLM_COMPATIBLE_API_SOURCE
       - LLM_COMPATIBLE_API_BASE_URL
       - LLM_COMPATIBLE_API_API_KEY
+      - LLM_COMPATIBLE_API_UPSTREAM_API_FORMAT
       - LLM_COMPATIBLE_API_HOST
       - LLM_COMPATIBLE_API_PORT
       - LLM_COMPATIBLE_API_MODELS
@@ -23,6 +24,12 @@ services:
       - "${LLM_COMPATIBLE_API_PORT:-10531}:${LLM_COMPATIBLE_API_PORT:-10531}"
     volumes:
       - llm-compatible-api-data:/root/.llm-compatible-api
+      - type: bind
+        source: ${LLM_COMPATIBLE_API_CODEX_DIR:-${HOME:-${USERPROFILE}}/.codex}
+        target: /root/.codex
+      - type: bind
+        source: ${LLM_COMPATIBLE_API_CLAUDE_DIR:-${HOME:-${USERPROFILE}}/.claude}
+        target: /root/.claude
 
 volumes:
   llm-compatible-api-data:

@@ -346,17 +346,26 @@ export const loadAuthTokens = async (
 		)
 	}
 
-	const readResult = await readAuthFile(resolveAuthFileCandidates(authFilePath))
-	const authData = readResult.data ?? {}
-	const tokens = normalizeTokens(authData.tokens)
-	const apiKey =
+	const configuredApiKey =
 		normalizeApiKey(explicitApiKey) ??
 		normalizeApiKey(
 			apiKeyEnvVar && apiKeyEnvVar.length > 0
 				? process.env[apiKeyEnvVar]
 				: process.env.OPENAI_API_KEY,
-		) ??
-		normalizeApiKey(authData.OPENAI_API_KEY)
+		)
+	if (typeof configuredApiKey === "string" && configuredApiKey.length > 0) {
+		return {
+			mode: "api-key",
+			authorizationToken: configuredApiKey,
+			apiKey: configuredApiKey,
+			sourcePath: authFilePath,
+		}
+	}
+
+	const readResult = await readAuthFile(resolveAuthFileCandidates(authFilePath))
+	const authData = readResult.data ?? {}
+	const tokens = normalizeTokens(authData.tokens)
+	const apiKey = normalizeApiKey(authData.OPENAI_API_KEY)
 
 	let accessToken = tokens.access_token
 	let idToken = tokens.id_token

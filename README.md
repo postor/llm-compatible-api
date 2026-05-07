@@ -14,7 +14,7 @@ Bridge one active upstream source into local OpenAI and Anthropic compatible end
 ## Sources
 
 - `codex`
-  ChatGPT/Codex OAuth or `OPENAI_API_KEY` against the default Codex upstream
+  ChatGPT/Codex OAuth against the official Codex upstream
 - `openai`
   Standard OpenAI-compatible `/v1` upstreams
 - `anthropic`
@@ -37,7 +37,8 @@ Serve directly:
 npx llm-compatible-api serve \
   --source openai \
   --base-url https://your-upstream.example.com/v1 \
-  --api-key sk-your-key
+  --api-key sk-your-key \
+  --exposed-api-key sk-client-key
 ```
 
 Interactive setup:
@@ -45,6 +46,33 @@ Interactive setup:
 ```bash
 npx llm-compatible-api init
 ```
+
+The wizard shows an upstream provider menu instead of asking for a raw URL:
+
+- `official` uses the ChatGPT/Codex upstream and requires local Codex OAuth
+- `unofficial` uses the built-in third-party OpenAI-compatible upstream preset and a pasted API key
+- `anthropic` uses the Anthropic Messages API upstream
+
+For third-party OpenAI-compatible upstreams, the wizard also asks whether the
+upstream expects the Responses API or Chat Completions format.
+
+For API-key upstreams, the interactive wizard asks for the key directly. Env
+vars are still supported for direct `serve` usage and `.env`-driven startup.
+The wizard also asks for the source API key mode:
+
+- Use the upstream API key for local clients.
+- Use a separate local client API key.
+- Bypass the local client Bearer key to the upstream as the source key.
+- Allow local requests without a client key.
+
+When a client key is configured or bypass mode is enabled, requests to the local
+endpoints must send `Authorization: Bearer <key>`.
+
+After saving, the wizard shows a final action menu. `Test profile` sends a
+`hello` message and checks whether the upstream returns a response; `End setup`
+finishes without testing. In bypass mode, the profile has no saved source or
+client key, so init cannot run the profile test. Start the server and test with
+a client `Authorization: Bearer <key>` request instead.
 
 Profiles:
 
@@ -71,18 +99,30 @@ You can store multiple upstream configs and switch the default without changing 
 
 ## Environment Variables
 
-Supported serve-time env vars:
+Supported direct-start env vars:
 
 - `LLM_COMPATIBLE_API_SOURCE`
 - `LLM_COMPATIBLE_API_BASE_URL`
 - `LLM_COMPATIBLE_API_API_KEY`
+- `LLM_COMPATIBLE_API_UPSTREAM_API_FORMAT`
 - `LLM_COMPATIBLE_API_HOST`
 - `LLM_COMPATIBLE_API_PORT`
 - `LLM_COMPATIBLE_API_MODELS`
 - `LLM_COMPATIBLE_API_DEFAULT_MODEL`
+- `LLM_COMPATIBLE_API_EXPOSED_API_KEY`
+- `LLM_COMPATIBLE_API_CLIENT_API_KEY_MODE`
 - `LLM_COMPATIBLE_API_HEADERS`
 
-CLI flags override env vars. Env vars override saved profile values.
+Direct-start env is used when `LLM_COMPATIBLE_API_SOURCE` and
+`LLM_COMPATIBLE_API_API_KEY` are set. `LLM_COMPATIBLE_API_BASE_URL` is optional:
+`openai` defaults to `https://api.openai.com/v1`, and `anthropic` defaults to
+`https://api.anthropic.com/v1`. OpenAI-compatible direct-start env defaults to
+Chat Completions format unless `LLM_COMPATIBLE_API_UPSTREAM_API_FORMAT` is set.
+Set `LLM_COMPATIBLE_API_EXPOSED_API_KEY` to require a Bearer key from local
+proxy clients. Set `LLM_COMPATIBLE_API_CLIENT_API_KEY_MODE=bypass` to use each
+client request's Bearer key as the upstream source API key.
+Otherwise, env is ignored and the saved interactive profile can be used. CLI
+flags override env vars.
 
 ## Docker Hub Image
 
@@ -98,7 +138,6 @@ Run it directly:
 docker run --rm \
   -p 10531:10531 \
   -e LLM_COMPATIBLE_API_SOURCE=openai \
-  -e LLM_COMPATIBLE_API_BASE_URL=https://your-upstream.example.com/v1 \
   -e LLM_COMPATIBLE_API_API_KEY=sk-your-key \
   -e LLM_COMPATIBLE_API_HOST=0.0.0.0 \
   postor/llm-compatible-api:latest
@@ -111,8 +150,17 @@ This starts:
 
 ## Docker Compose
 
-The included Compose file uses the published Docker Hub image and stores CLI
-profiles in the `llm-compatible-api-data` Docker volume.
+The included Compose file uses the published Docker Hub image and persists
+state in the expected home-directory locations:
+
+- saved bridge profiles are stored in the `llm-compatible-api-data` volume at `/root/.llm-compatible-api`
+- host `~/.codex` is mounted to `/root/.codex`
+- host `~/.claude` is mounted to `/root/.claude`
+
+Compose uses `${HOME}/.codex` and `${HOME}/.claude` by default, falling back to
+`${USERPROFILE}` on Windows. Override `LLM_COMPATIBLE_API_CODEX_DIR` or
+`LLM_COMPATIBLE_API_CLAUDE_DIR` in `.env` only if your config directories live
+somewhere else.
 
 Interactive setup:
 
@@ -123,10 +171,12 @@ docker compose run --rm llm-compatible-api init
 
 When the wizard asks for `Bind host`, use `0.0.0.0` inside Docker so the
 published port is reachable from the host machine. The profile is saved at
-`/root/.llm-compatible-api/config.json` in the Compose volume.
+`/root/.llm-compatible-api/config.json` in the Compose volume. Official Codex
+profiles can use `/root/.codex/auth.json`, which maps to your host
+`~/.codex/auth.json` by default.
 
-If the wizard stores an API key environment variable such as `OPENAI_API_KEY`
-or `ANTHROPIC_API_KEY`, put that variable in `.env` before starting the service:
+If you serve without a saved interactive profile, put the direct-start
+configuration in `.env` before starting the service:
 
 ```bash
 cp .env.example .env
@@ -158,9 +208,11 @@ docker compose down
 ```
 
 You can also serve without a saved profile by copying `.env.example` to `.env`
-and setting `LLM_COMPATIBLE_API_SOURCE`, `LLM_COMPATIBLE_API_BASE_URL`, and
-`LLM_COMPATIBLE_API_API_KEY`. Environment variables override saved profile
-values.
+and setting `LLM_COMPATIBLE_API_SOURCE`, `LLM_COMPATIBLE_API_API_KEY`, and
+optionally `LLM_COMPATIBLE_API_BASE_URL` and
+`LLM_COMPATIBLE_API_UPSTREAM_API_FORMAT`. When the required direct-start
+variables are set, they are used instead of opening or loading an interactive
+profile.
 
 ## Extra Headers
 

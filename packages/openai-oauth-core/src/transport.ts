@@ -53,6 +53,8 @@ class AuthManager {
 
 		this.inflight = loadAuthTokens({
 			authFilePath: this.settings.authFilePath,
+			apiKey: this.settings.apiKey,
+			apiKeyEnvVar: this.settings.apiKeyEnvVar,
 			clientId: this.settings.clientId,
 			issuer: this.settings.issuer,
 			tokenUrl: this.settings.tokenUrl,

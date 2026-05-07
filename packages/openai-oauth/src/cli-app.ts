@@ -5,7 +5,11 @@ import { hideBin } from "yargs/helpers"
 import { resolveAuthFileCandidates } from "../../openai-oauth-core/src/index.js"
 import packageJson from "../package.json" with { type: "json" }
 import { installCliWarningLogger, toStartupMessage } from "./cli-logging.js"
-import { collectProfileInteractively } from "./interactive.js"
+import { startOpenAIOAuthServer } from "./index.js"
+import {
+	collectInitInteractively,
+	collectProfileInteractively,
+} from "./interactive.js"
 import {
 	getStoredProfile,
 	readProfileStore,
@@ -14,11 +18,15 @@ import {
 	saveProfile,
 	setDefaultProfile,
 } from "./profile-store.js"
-import { createBridgeRuntime } from "./runtime.js"
+import { testProfileWithHello } from "./profile-test.js"
+import {
+	ANTHROPIC_OFFICIAL_BASE_URL,
+	createBridgeRuntime,
+	OPENAI_DEFAULT_BASE_URL,
+} from "./runtime.js"
 import { DEFAULT_PORT } from "./shared.js"
-import { startOpenAIOAuthServer } from "./index.js"
-import { checkForOpenAIOAuthUpdates } from "./update-check.js"
 import type { OpenAIOAuthServerOptions, StoredBridgeProfile } from "./types.js"
+import { checkForOpenAIOAuthUpdates } from "./update-check.js"
 
 export type CliArgs = {
 	host?: string
@@ -30,12 +38,15 @@ export type CliArgs = {
 	tokenUrl?: string
 	authFilePath?: string
 	sourceKind?: "codex" | "openai" | "anthropic"
+	upstreamApiFormat?: "responses" | "chat"
 	defaultModel?: string
 	profileName?: string
 	apiKey?: string
 	apiKeyEnvVar?: string
 	authToken?: string
 	authTokenEnvVar?: string
+	exposedApiKey?: string
+	clientApiKeyMode?: "fixed" | "bypass"
 	headers?: Record<string, string>
 }
 
@@ -57,7 +68,18 @@ const parseModels = (value: string | undefined): string[] | undefined => {
 	return models.length > 0 ? models : undefined
 }
 
-const parseHeaders = (values: string[] | undefined): Record<string, string> | undefined => {
+const parsePort = (value: string | undefined): number | undefined => {
+	if (typeof value !== "string" || value.trim().length === 0) {
+		return undefined
+	}
+
+	const parsed = Number(value)
+	return Number.isFinite(parsed) ? parsed : undefined
+}
+
+const parseHeaders = (
+	values: string[] | undefined,
+): Record<string, string> | undefined => {
 	if (!Array.isArray(values) || values.length === 0) {
 		return undefined
 	}
@@ -73,6 +95,86 @@ const parseHeaders = (values: string[] | undefined): Record<string, string> | un
 	}
 
 	return Object.keys(headers).length > 0 ? headers : undefined
+}
+
+const parseHeaderList = (value: string | undefined): string[] | undefined => {
+	if (typeof value !== "string" || value.trim().length === 0) {
+		return undefined
+	}
+
+	const headers = value
+		.split(",")
+		.map((entry) => entry.trim())
+		.filter((entry) => entry.length > 0)
+	return headers.length > 0 ? headers : undefined
+}
+
+const parseSourceKind = (value: string | undefined): CliArgs["sourceKind"] => {
+	if (value === "codex" || value === "openai" || value === "anthropic") {
+		return value
+	}
+
+	return undefined
+}
+
+const parseUpstreamApiFormat = (
+	value: string | undefined,
+): CliArgs["upstreamApiFormat"] => {
+	if (value === "responses" || value === "chat") {
+		return value
+	}
+
+	return undefined
+}
+
+const parseClientApiKeyMode = (
+	value: string | undefined,
+): CliArgs["clientApiKeyMode"] => {
+	if (value === "fixed" || value === "bypass") {
+		return value
+	}
+
+	return undefined
+}
+
+const readDirectStartEnv = (): Partial<CliArgs> => {
+	const sourceKind = parseSourceKind(process.env.LLM_COMPATIBLE_API_SOURCE)
+	const apiKey = process.env.LLM_COMPATIBLE_API_API_KEY
+	const clientApiKeyMode = parseClientApiKeyMode(
+		process.env.LLM_COMPATIBLE_API_CLIENT_API_KEY_MODE,
+	)
+
+	if (!sourceKind || (!apiKey && clientApiKeyMode !== "bypass")) {
+		return {}
+	}
+
+	const defaultBaseURL =
+		sourceKind === "anthropic"
+			? ANTHROPIC_OFFICIAL_BASE_URL
+			: sourceKind === "openai"
+				? OPENAI_DEFAULT_BASE_URL
+				: undefined
+
+	return {
+		sourceKind,
+		baseURL: process.env.LLM_COMPATIBLE_API_BASE_URL ?? defaultBaseURL,
+		apiKey,
+		host: process.env.LLM_COMPATIBLE_API_HOST,
+		port: parsePort(process.env.LLM_COMPATIBLE_API_PORT),
+		models: parseModels(process.env.LLM_COMPATIBLE_API_MODELS),
+		defaultModel: process.env.LLM_COMPATIBLE_API_DEFAULT_MODEL,
+		exposedApiKey: process.env.LLM_COMPATIBLE_API_EXPOSED_API_KEY,
+		clientApiKeyMode,
+		upstreamApiFormat:
+			sourceKind === "openai"
+				? (parseUpstreamApiFormat(
+						process.env.LLM_COMPATIBLE_API_UPSTREAM_API_FORMAT,
+					) ?? "chat")
+				: undefined,
+		headers: parseHeaders(
+			parseHeaderList(process.env.LLM_COMPATIBLE_API_HEADERS),
+		),
+	}
 }
 
 const expandUserHome = (value: string | undefined): string | undefined => {
@@ -95,11 +197,14 @@ const helpLines = [
 	"Serve Options",
 	"  --source <kind>            Source kind: codex, openai, anthropic.",
 	"  --base-url <url>           Override the upstream base URL.",
+	"  --upstream-api-format <f>  OpenAI-compatible upstream format: responses or chat.",
 	"  --oauth-file <path>        Auth file path for codex/openai sources.",
 	"  --api-key <value>          Explicit API key for openai/anthropic sources.",
 	"  --api-key-env <name>       Env var name that contains the API key.",
 	"  --auth-token <value>       Explicit bearer token for anthropic sources.",
 	"  --auth-token-env <name>    Env var name that contains the bearer token.",
+	"  --exposed-api-key <value>  Require this API key from local proxy clients.",
+	"  --client-api-key-mode <m>  Client key mode: fixed or bypass.",
 	"  --header k=v              Repeatable upstream header override.",
 	"  --profile <name>           Load a saved profile.",
 	"  --host <host>              Host interface to bind to.",
@@ -126,6 +231,10 @@ const createServeCliParser = (argv: string[]) =>
 		})
 		.option("codex-version", { type: "string" })
 		.option("base-url", { type: "string" })
+		.option("upstream-api-format", {
+			type: "string",
+			choices: ["responses", "chat"],
+		})
 		.option("oauth-client-id", { type: "string" })
 		.option("oauth-token-url", { type: "string" })
 		.option("oauth-file", { type: "string" })
@@ -139,6 +248,11 @@ const createServeCliParser = (argv: string[]) =>
 		.option("api-key-env", { type: "string" })
 		.option("auth-token", { type: "string" })
 		.option("auth-token-env", { type: "string" })
+		.option("exposed-api-key", { type: "string" })
+		.option("client-api-key-mode", {
+			type: "string",
+			choices: ["fixed", "bypass"],
+		})
 		.option("header", {
 			type: "string",
 			array: true,
@@ -153,29 +267,39 @@ export const toHelpMessage = (): string => helpLines.join("\n")
 
 export const parseCliArgs = (argv: string[]): CliArgs => {
 	const parsed = createServeCliParser(argv).parseSync()
+	const directStartEnv = readDirectStartEnv()
+	const cliHeaders = parseHeaders(parsed.header)
 
 	return {
-		host: parsed.host,
-		port: parsed.port,
-		models: parsed.models,
+		host: parsed.host ?? directStartEnv.host,
+		port: parsed.port ?? directStartEnv.port,
+		models: parsed.models ?? directStartEnv.models,
 		codexVersion: parsed.codexVersion,
-		baseURL: parsed.baseUrl,
+		baseURL: parsed.baseUrl ?? directStartEnv.baseURL,
 		clientId: parsed.oauthClientId,
 		tokenUrl: parsed.oauthTokenUrl,
 		authFilePath: expandUserHome(parsed.oauthFile),
-		sourceKind:
-			parsed.source === "codex" ||
-			parsed.source === "openai" ||
-			parsed.source === "anthropic"
-				? parsed.source
-				: undefined,
-		defaultModel: parsed.defaultModel,
+		sourceKind: parseSourceKind(parsed.source) ?? directStartEnv.sourceKind,
+		upstreamApiFormat:
+			parseUpstreamApiFormat(parsed.upstreamApiFormat) ??
+			directStartEnv.upstreamApiFormat,
+		defaultModel: parsed.defaultModel ?? directStartEnv.defaultModel,
 		profileName: parsed.profile,
-		apiKey: parsed.apiKey,
+		apiKey: parsed.apiKey ?? directStartEnv.apiKey,
 		apiKeyEnvVar: parsed.apiKeyEnv,
 		authToken: parsed.authToken,
 		authTokenEnvVar: parsed.authTokenEnv,
-		headers: parseHeaders(parsed.header),
+		exposedApiKey: parsed.exposedApiKey ?? directStartEnv.exposedApiKey,
+		clientApiKeyMode:
+			parseClientApiKeyMode(parsed.clientApiKeyMode) ??
+			directStartEnv.clientApiKeyMode,
+		headers:
+			directStartEnv.headers || cliHeaders
+				? {
+						...(directStartEnv.headers ?? {}),
+						...(cliHeaders ?? {}),
+					}
+				: undefined,
 	}
 }
 
@@ -191,11 +315,14 @@ export const toServerOptions = (
 	tokenUrl: args.tokenUrl,
 	authFilePath: expandUserHome(args.authFilePath),
 	sourceKind: args.sourceKind,
+	upstreamApiFormat: args.upstreamApiFormat,
 	defaultModel: args.defaultModel,
 	apiKey: args.apiKey,
 	apiKeyEnvVar: args.apiKeyEnvVar,
 	authToken: args.authToken,
 	authTokenEnvVar: args.authTokenEnvVar,
+	exposedApiKey: args.exposedApiKey,
+	clientApiKeyMode: args.clientApiKeyMode,
 	headers: args.headers,
 })
 
@@ -217,12 +344,15 @@ const mergeProfileWithArgs = (
 		tokenUrl: args.tokenUrl ?? profile.tokenUrl,
 		authFilePath: args.authFilePath ?? profile.authFilePath,
 		sourceKind: args.sourceKind ?? profile.sourceKind,
+		upstreamApiFormat: args.upstreamApiFormat ?? profile.upstreamApiFormat,
 		defaultModel: args.defaultModel ?? profile.defaultModel,
 		profileName: args.profileName ?? profile.name,
 		apiKey: args.apiKey ?? profile.apiKey,
 		apiKeyEnvVar: args.apiKeyEnvVar ?? profile.apiKeyEnvVar,
 		authToken: args.authToken ?? profile.authToken,
 		authTokenEnvVar: args.authTokenEnvVar ?? profile.authTokenEnvVar,
+		exposedApiKey: args.exposedApiKey ?? profile.exposedApiKey,
+		clientApiKeyMode: args.clientApiKeyMode ?? profile.clientApiKeyMode,
 		headers: {
 			...(profile.headers ?? {}),
 			...(args.headers ?? {}),
@@ -244,6 +374,10 @@ const findExistingAuthFile = async (
 }
 
 const hasConfiguredSecret = (args: CliArgs): boolean => {
+	if (args.clientApiKeyMode === "bypass") {
+		return true
+	}
+
 	const openAiEnv =
 		args.apiKeyEnvVar && args.apiKeyEnvVar.length > 0
 			? process.env[args.apiKeyEnvVar]
@@ -298,21 +432,23 @@ const hasExplicitServeOptions = (args: CliArgs): boolean =>
 			args.apiKeyEnvVar ||
 			args.authToken ||
 			args.authTokenEnvVar ||
+			args.exposedApiKey ||
+			args.clientApiKeyMode ||
 			args.headers,
 	)
 
-const toStoredProfile = (
-	name: string,
-	args: CliArgs,
-): StoredBridgeProfile => ({
+const toStoredProfile = (name: string, args: CliArgs): StoredBridgeProfile => ({
 	name,
 	sourceKind: args.sourceKind ?? "openai",
+	upstreamApiFormat: args.upstreamApiFormat,
 	baseURL: args.baseURL,
 	authFilePath: args.authFilePath,
 	apiKey: args.apiKey,
 	apiKeyEnvVar: args.apiKeyEnvVar,
 	authToken: args.authToken,
 	authTokenEnvVar: args.authTokenEnvVar,
+	exposedApiKey: args.exposedApiKey,
+	clientApiKeyMode: args.clientApiKeyMode,
 	clientId: args.clientId,
 	tokenUrl: args.tokenUrl,
 	codexVersion: args.codexVersion,
@@ -327,6 +463,7 @@ const maskProfile = (profile: StoredBridgeProfile) => ({
 	...profile,
 	apiKey: profile.apiKey ? "***" : undefined,
 	authToken: profile.authToken ? "***" : undefined,
+	exposedApiKey: profile.exposedApiKey ? "***" : undefined,
 })
 
 const resolveServeArgs = async (argv: string[]): Promise<CliArgs> => {
@@ -349,6 +486,17 @@ const resolveServeArgs = async (argv: string[]): Promise<CliArgs> => {
 	}
 
 	return mergeProfileWithArgs(storedProfile, parsed)
+}
+
+const resolveStartupModels = async (
+	options: OpenAIOAuthServerOptions,
+	runtime: ReturnType<typeof createBridgeRuntime>,
+): Promise<string[]> => {
+	if (options.clientApiKeyMode === "bypass") {
+		return options.models?.length ? options.models : [runtime.defaultModel]
+	}
+
+	return runtime.resolveModels()
 }
 
 const runServeCommand = async (argv: string[]) => {
@@ -375,7 +523,7 @@ const runServeCommand = async (argv: string[]) => {
 	}
 
 	const runtime = createBridgeRuntime(options)
-	const availableModels = await runtime.resolveModels()
+	const availableModels = await resolveStartupModels(options, runtime)
 	const server = await startOpenAIOAuthServer(options)
 
 	console.log(
@@ -385,6 +533,9 @@ const runServeCommand = async (argv: string[]) => {
 			{
 				useColor: process.stdout.isTTY,
 				sourceKind: options.sourceKind,
+				requiresClientApiKey: Boolean(
+					options.exposedApiKey || options.clientApiKeyMode === "bypass",
+				),
 			},
 		),
 	)
@@ -405,9 +556,36 @@ const runServeCommand = async (argv: string[]) => {
 }
 
 const runInitCommand = async () => {
-	const profile = await collectProfileInteractively(await getStoredProfile())
+	const { action, profile } = await collectInitInteractively(
+		await getStoredProfile(),
+	)
 	await saveProfile(profile, { setDefault: true })
-	console.log(`Saved default profile "${profile.name}" at ${resolveProfileStorePath()}`)
+	console.log(
+		`Saved default profile "${profile.name}" at ${resolveProfileStorePath()}`,
+	)
+	if (action === "end") {
+		return
+	}
+
+	if (profile.clientApiKeyMode === "bypass") {
+		console.log(
+			"Bypass mode has no saved source/client key, so init cannot run the profile test. Start the server and test with a client Authorization bearer key instead.",
+		)
+		return
+	}
+
+	try {
+		const runtime = createBridgeRuntime(toServerOptions(profile))
+		console.log(
+			`Testing profile with hello against ${profile.baseURL ?? "default upstream"} (${profile.upstreamApiFormat ?? profile.sourceKind})...`,
+		)
+		const result = await testProfileWithHello(runtime, profile.defaultModel)
+		console.log(`Profile test passed with model "${result.model}".`)
+		console.log(`Assistant response: ${result.text}`)
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error)
+		console.error(`Profile test failed: ${message}`)
+	}
 }
 
 const runProfilesCommand = async (argv: string[]) => {
@@ -487,7 +665,10 @@ const runProfilesCommand = async (argv: string[]) => {
 				name: parsed.name,
 				setDefault: parsed.default,
 			}
-			await saveProfile(toStoredProfile(args.name!, args), {
+			if (!args.name) {
+				throw new Error("Usage: profiles add --name <name>")
+			}
+			await saveProfile(toStoredProfile(args.name, args), {
 				setDefault: args.setDefault,
 			})
 			console.log(`Saved profile "${args.name}".`)
@@ -495,9 +676,7 @@ const runProfilesCommand = async (argv: string[]) => {
 		}
 
 		default:
-			throw new Error(
-				"Usage: profiles <list|show|add|use|remove> [args]",
-			)
+			throw new Error("Usage: profiles <list|show|add|use|remove> [args]")
 	}
 }
 

@@ -60,6 +60,185 @@ describe("openai oauth server", () => {
 		})
 	})
 
+	test("requires the configured client API key for local endpoints", async () => {
+		const handler = createOpenAIOAuthFetchHandler({
+			exposedApiKey: "sk-local-client-key",
+			models: ["gpt-5.2"],
+		})
+
+		const missing = await handler(
+			new Request("http://localhost/v1/models", {
+				method: "GET",
+			}),
+		)
+		expect(missing.status).toBe(401)
+		await expect(missing.json()).resolves.toEqual({
+			error: {
+				message: "Missing or invalid API key.",
+				type: "authentication_error",
+			},
+		})
+
+		const wrong = await handler(
+			new Request("http://localhost/v1/models", {
+				method: "GET",
+				headers: {
+					Authorization: "Bearer wrong-key",
+				},
+			}),
+		)
+		expect(wrong.status).toBe(401)
+
+		const authorized = await handler(
+			new Request("http://localhost/v1/models", {
+				method: "GET",
+				headers: {
+					Authorization: "Bearer sk-local-client-key",
+				},
+			}),
+		)
+		expect(authorized.status).toBe(200)
+	})
+
+	test("uses the client bearer token as the upstream key in bypass mode", async () => {
+		const fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+			expect(new Headers(init?.headers).get("authorization")).toBe(
+				"Bearer sk-client-upstream-key",
+			)
+			return new Response(
+				JSON.stringify({
+					data: [{ id: "gpt-client-key-model" }],
+				}),
+				{
+					status: 200,
+					headers: {
+						"Content-Type": "application/json",
+					},
+				},
+			)
+		})
+		const handler = createOpenAIOAuthFetchHandler({
+			sourceKind: "openai",
+			upstreamApiFormat: "chat",
+			baseURL: "https://example.test/v1",
+			clientApiKeyMode: "bypass",
+			fetch,
+		})
+
+		const missing = await handler(
+			new Request("http://localhost/v1/models", {
+				method: "GET",
+			}),
+		)
+		expect(missing.status).toBe(401)
+		expect(fetch).not.toHaveBeenCalled()
+
+		const authorized = await handler(
+			new Request("http://localhost/v1/models", {
+				method: "GET",
+				headers: {
+					Authorization: "Bearer sk-client-upstream-key",
+				},
+			}),
+		)
+
+		expect(authorized.status).toBe(200)
+		expect(fetch).toHaveBeenCalledTimes(1)
+		await expect(authorized.json()).resolves.toEqual({
+			object: "list",
+			data: [
+				{
+					id: "gpt-client-key-model",
+					object: "model",
+					created: 0,
+					owned_by: "openai",
+				},
+			],
+		})
+	})
+
+	test("passes the client bearer token upstream for chat requests in bypass mode", async () => {
+		const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+			expect(String(input)).toBe("https://example.test/v1/chat/completions")
+			expect(init?.method).toBe("POST")
+			expect(new Headers(init?.headers).get("authorization")).toBe(
+				"Bearer sk-client-upstream-key",
+			)
+			expect(JSON.parse(String(init?.body))).toMatchObject({
+				model: "gpt-client-key-model",
+				messages: [{ role: "user", content: "hello" }],
+			})
+			return new Response(
+				JSON.stringify({
+					id: "chatcmpl_test",
+					object: "chat.completion",
+					choices: [
+						{
+							index: 0,
+							message: { role: "assistant", content: "hello back" },
+							finish_reason: "stop",
+						},
+					],
+				}),
+				{
+					status: 200,
+					headers: {
+						"Content-Type": "application/json",
+					},
+				},
+			)
+		})
+		const handler = createOpenAIOAuthFetchHandler({
+			sourceKind: "openai",
+			upstreamApiFormat: "chat",
+			baseURL: "https://example.test/v1",
+			clientApiKeyMode: "bypass",
+			fetch,
+		})
+
+		const missing = await handler(
+			new Request("http://localhost/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					model: "gpt-client-key-model",
+					messages: [{ role: "user", content: "hello" }],
+				}),
+			}),
+		)
+		expect(missing.status).toBe(401)
+		expect(fetch).not.toHaveBeenCalled()
+
+		const authorized = await handler(
+			new Request("http://localhost/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					Authorization: "Bearer sk-client-upstream-key",
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					model: "gpt-client-key-model",
+					messages: [{ role: "user", content: "hello" }],
+				}),
+			}),
+		)
+
+		expect(authorized.status).toBe(200)
+		expect(fetch).toHaveBeenCalledTimes(1)
+		await expect(authorized.json()).resolves.toMatchObject({
+			id: "chatcmpl_test",
+			choices: [
+				{
+					message: {
+						content: "hello back",
+					},
+				},
+			],
+		})
+	})
+
 	test("loads account models from codex when no override is configured", async () => {
 		const authFilePath = await createAuthFile()
 		const fetch = vi.fn(async (input: RequestInfo | URL) => {

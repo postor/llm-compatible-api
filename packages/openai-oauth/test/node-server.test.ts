@@ -23,6 +23,8 @@ describe("node server runtime", () => {
 		await expect(response.json()).resolves.toEqual({
 			ok: true,
 			replay_state: "stateless",
+			source: "codex",
+			targets: ["openai", "anthropic"],
 		})
 	})
 })

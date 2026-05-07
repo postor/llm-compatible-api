@@ -231,4 +231,36 @@ describe("loadAuthTokens", () => {
 			await fs.rm(root, { recursive: true, force: true })
 		}
 	})
+
+	test("prefers explicit API key over oauth tokens", async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), "auth-explicit-key-"))
+		const authPath = path.join(root, "auth.json")
+		const fetch =
+			globalThis.fetch ??
+			(async () => {
+				throw new Error("unused")
+			})
+
+		try {
+			await writeAuthFile(authPath, {
+				tokens: {
+					access_token: "access-token",
+					account_id: "acct-1",
+				},
+			})
+
+			const result = await loadAuthTokens({
+				authFilePath: authPath,
+				apiKey: "sk-explicit-key",
+				fetch,
+				ensureFresh: false,
+			})
+
+			expect(result.mode).toBe("api-key")
+			expect(result.apiKey).toBe("sk-explicit-key")
+			expect(result.authorizationToken).toBe("sk-explicit-key")
+		} finally {
+			await fs.rm(root, { recursive: true, force: true })
+		}
+	})
 })

@@ -1,3 +1,4 @@
+import type { LanguageModelV3 } from "@ai-sdk/provider"
 import { describe, expect, test, vi } from "vitest"
 
 // Mock only streamText, keep the real tool/jsonSchema exports
@@ -11,19 +12,31 @@ vi.mock("ai", async (importOriginal) => {
 
 import { streamText } from "ai"
 import { streamChatCompletions } from "../src/chat-stream.js"
-import type { ChatRequest } from "../src/types.js"
+import type { BridgeRuntime, ChatRequest } from "../src/types.js"
 
 const mockedStreamText = vi.mocked(streamText)
 
+type ToolCallChunk = {
+	choices: Array<{
+		delta: {
+			tool_calls: Array<{
+				function?: {
+					arguments?: string
+				}
+			}>
+		}
+	}>
+}
+
 /** Helper to create a fake fullStream async iterable from an array of parts. */
-function fakeFullStream(parts: unknown[]) {
+function fakeFullStream(parts: unknown[]): ReturnType<typeof streamText> {
 	return {
 		fullStream: (async function* () {
 			for (const part of parts) {
 				yield part
 			}
 		})(),
-	}
+	} as unknown as ReturnType<typeof streamText>
 }
 
 /** Parse all SSE data lines from a streaming response. */
@@ -38,13 +51,39 @@ async function collectSseData(response: Response): Promise<unknown[]> {
 }
 
 /** Find SSE chunks that contain tool_calls in the delta. */
-function findToolCallChunks(chunks: unknown[]): unknown[] {
-	return chunks.filter(
-		(chunk: any) => chunk.choices?.[0]?.delta?.tool_calls != null,
-	)
+function findToolCallChunks(chunks: unknown[]): ToolCallChunk[] {
+	return chunks.filter((chunk): chunk is ToolCallChunk => {
+		if (typeof chunk !== "object" || chunk == null) {
+			return false
+		}
+
+		const choices = (chunk as { choices?: unknown }).choices
+		if (!Array.isArray(choices)) {
+			return false
+		}
+
+		const firstChoice = choices[0]
+		if (typeof firstChoice !== "object" || firstChoice == null) {
+			return false
+		}
+
+		const delta = (firstChoice as { delta?: unknown }).delta
+		if (typeof delta !== "object" || delta == null) {
+			return false
+		}
+
+		return Array.isArray((delta as { tool_calls?: unknown }).tool_calls)
+	})
 }
 
-const dummyProvider = (() => ({})) as any
+const dummyModel = {} as LanguageModelV3
+const dummyRuntime: BridgeRuntime = {
+	sourceKind: "codex",
+	modelFactory: () => dummyModel,
+	resolveModels: async () => ["gpt-5.4"],
+	defaultModel: "gpt-5.4",
+	supportsOpenAIResponses: true,
+}
 const dummyLogContext = {
 	requestId: "test-req",
 	startedAt: Date.now(),
@@ -81,7 +120,7 @@ describe("streamChatCompletions", () => {
 					finishReason: "tool-calls",
 					totalUsage: { promptTokens: 10, completionTokens: 20 },
 				},
-			]) as any,
+			]),
 		)
 
 		const request: ChatRequest = {
@@ -103,7 +142,7 @@ describe("streamChatCompletions", () => {
 
 		const response = await streamChatCompletions(
 			request,
-			dummyProvider,
+			dummyRuntime,
 			dummyLogContext,
 		)
 
@@ -133,9 +172,11 @@ describe("streamChatCompletions", () => {
 		})
 
 		// Remaining chunks: deltas with argument fragments
-		const args = (toolChunks as any[])
+		const args = toolChunks
 			.slice(1)
-			.map((c) => c.choices[0].delta.tool_calls[0].function.arguments)
+			.map(
+				(chunk) => chunk.choices[0]?.delta.tool_calls[0]?.function?.arguments,
+			)
 			.join("")
 
 		expect(args).toBe('{"file_path":"/etc/hosts"}')
@@ -162,7 +203,7 @@ describe("streamChatCompletions", () => {
 					finishReason: "tool-calls",
 					totalUsage: { promptTokens: 10, completionTokens: 20 },
 				},
-			]) as any,
+			]),
 		)
 
 		const request: ChatRequest = {
@@ -188,7 +229,7 @@ describe("streamChatCompletions", () => {
 
 		const response = await streamChatCompletions(
 			request,
-			dummyProvider,
+			dummyRuntime,
 			dummyLogContext,
 		)
 
@@ -217,8 +258,10 @@ describe("streamChatCompletions", () => {
 		})
 
 		// Second chunk: complete arguments from tool-call fallback
-		const args = (toolChunks[1] as any).choices[0].delta.tool_calls[0]
-			.function.arguments
+		const fallbackChunk = toolChunks[1]
+		expect(fallbackChunk).toBeDefined()
+		const args =
+			fallbackChunk?.choices[0]?.delta.tool_calls[0]?.function?.arguments ?? ""
 		expect(JSON.parse(args)).toEqual({
 			file_path: "/etc/hosts",
 			offset: 0,

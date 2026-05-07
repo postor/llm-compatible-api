@@ -66,13 +66,19 @@ export const dim = (text: string, options?: { useColor?: boolean }): string =>
 export const toStartupMessage = (
 	baseUrl: string,
 	availableModels: string[],
-	options?: { useColor?: boolean; sourceKind?: string },
+	options?: {
+		useColor?: boolean
+		sourceKind?: string
+		requiresClientApiKey?: boolean
+	},
 ): string =>
 	[
 		`OpenAI-compatible endpoint ready at ${underline(baseUrl, options)}`,
 		`Anthropic-compatible endpoint ready at ${underline(baseUrl.replace(/\/v1$/, ""), options)}`,
 		dim(
-			`Source: ${options?.sourceKind ?? "openai"} | No client-side API key is required.`,
+			options?.requiresClientApiKey
+				? `Source: ${options?.sourceKind ?? "openai"} | Clients must send Authorization: Bearer <client API key>.`
+				: `Source: ${options?.sourceKind ?? "openai"} | No client-side API key is required.`,
 			options,
 		),
 		dim(

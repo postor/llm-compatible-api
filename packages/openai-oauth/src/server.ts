@@ -17,14 +17,72 @@ import {
 	writeWebResponse,
 } from "./shared.js"
 import type {
+	BridgeRuntime,
 	OpenAIOAuthServerOptions,
 	RunningOpenAIOAuthServer,
 } from "./types.js"
 
+const readBearerToken = (request: Request): string | undefined => {
+	const authorization = request.headers.get("authorization")
+	if (typeof authorization !== "string") {
+		return undefined
+	}
+
+	const match = authorization.match(/^Bearer\s+(.+)$/i)
+	return match?.[1]?.trim()
+}
+
+const requireClientApiKey = (
+	request: Request,
+	settings: OpenAIOAuthServerOptions,
+): { response?: Response; upstreamApiKey?: string } => {
+	const bearerToken = readBearerToken(request)
+	if (settings.clientApiKeyMode === "bypass") {
+		if (!bearerToken) {
+			return {
+				response: toErrorResponse(
+					"Missing or invalid API key.",
+					401,
+					"authentication_error",
+				),
+			}
+		}
+
+		return { upstreamApiKey: bearerToken }
+	}
+
+	if (settings.exposedApiKey && bearerToken !== settings.exposedApiKey) {
+		return {
+			response: toErrorResponse(
+				"Missing or invalid API key.",
+				401,
+				"authentication_error",
+			),
+		}
+	}
+
+	return {}
+}
+
+const toRequestRuntime = (
+	settings: OpenAIOAuthServerOptions,
+	defaultRuntime: BridgeRuntime,
+	upstreamApiKey: string | undefined,
+): BridgeRuntime =>
+	upstreamApiKey
+		? createBridgeRuntime({
+				...settings,
+				apiKey: upstreamApiKey,
+				apiKeyEnvVar: undefined,
+				authToken: undefined,
+				authTokenEnvVar: undefined,
+			})
+		: defaultRuntime
+
 const handleRoutes = async (
 	request: Request,
 	settings: OpenAIOAuthServerOptions,
-	runtime: ReturnType<typeof createBridgeRuntime>,
+	defaultRuntime: BridgeRuntime,
 	requestLogger: ReturnType<typeof createRequestLogger>,
 ): Promise<Response> => {
 	if (request.method === "OPTIONS") {
@@ -33,6 +91,16 @@ const handleRoutes = async (
 			headers: corsHeaders,
 		})
 	}
+
+	const clientAuth = requireClientApiKey(request, settings)
+	if (clientAuth.response) {
+		return clientAuth.response
+	}
+	const runtime = toRequestRuntime(
+		settings,
+		defaultRuntime,
+		clientAuth.upstreamApiKey,
+	)
 
 	const url = new URL(request.url)
 	if (request.method === "GET" && url.pathname === "/health") {

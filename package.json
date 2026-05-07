@@ -2,13 +2,14 @@
 	"name": "llm-compatible-api-monorepo",
 	"private": true,
 	"description": "Bridge one active upstream source into local OpenAI and Anthropic compatible endpoints.",
-	"packageManager": "bun@1.2.18",
+	"packageManager": "pnpm@10.0.0",
 	"workspaces": [
 		"packages/*"
 	],
 	"scripts": {
 		"build": "turbo run build",
-		"dev": "turbo run dev --parallel",
+		"dev": "tsx packages/openai-oauth/src/cli.ts",
+		"dev:all": "turbo run dev",
 		"typecheck": "turbo run typecheck",
 		"test": "turbo run test",
 		"format-and-lint": "biome check .",
@@ -18,6 +19,7 @@
 		"@biomejs/biome": "2.3.10",
 		"tsup": "^8.5.0",
 		"turbo": "^2.6.3",
+		"tsx": "^4.20.6",
 		"typescript": "5.9.2"
 	},
 	"author": "EvanZhouDev",

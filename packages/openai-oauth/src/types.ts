@@ -223,16 +223,21 @@ export const defaultOpenAIOAuthModels: readonly string[] = [
 ]
 
 export type BridgeSourceKind = "codex" | "openai" | "anthropic"
+export type OpenAICompatibleApiFormat = "responses" | "chat"
+export type ClientApiKeyMode = "fixed" | "bypass"
 
 export type StoredBridgeProfile = {
 	name: string
 	sourceKind: BridgeSourceKind
+	upstreamApiFormat?: OpenAICompatibleApiFormat
 	baseURL?: string
 	authFilePath?: string
 	apiKey?: string
 	apiKeyEnvVar?: string
 	authToken?: string
 	authTokenEnvVar?: string
+	exposedApiKey?: string
+	clientApiKeyMode?: ClientApiKeyMode
 	clientId?: string
 	tokenUrl?: string
 	codexVersion?: string
@@ -258,11 +263,14 @@ export type OpenAIOAuthServerOptions = Omit<
 	models?: string[]
 	codexVersion?: string
 	sourceKind?: BridgeSourceKind
+	upstreamApiFormat?: OpenAICompatibleApiFormat
 	defaultModel?: string
 	apiKey?: string
 	apiKeyEnvVar?: string
 	authToken?: string
 	authTokenEnvVar?: string
+	exposedApiKey?: string
+	clientApiKeyMode?: ClientApiKeyMode
 	requestLogger?: (event: OpenAIOAuthServerLogEvent) => void
 }
 
@@ -270,6 +278,7 @@ export type BridgeModelFactory = (modelId: string) => LanguageModelV3
 
 export type BridgeRuntime = {
 	sourceKind: BridgeSourceKind
+	upstreamApiFormat?: OpenAICompatibleApiFormat
 	modelFactory: BridgeModelFactory
 	resolveModels: () => Promise<string[]>
 	defaultModel: string
@@ -278,6 +287,7 @@ export type BridgeRuntime = {
 		body: Record<string, unknown>,
 		signal?: AbortSignal,
 	) => Promise<Response>
+	requestChatCompletion?: (body: ChatRequest) => Promise<Response>
 }
 
 export type RunningOpenAIOAuthServer = {

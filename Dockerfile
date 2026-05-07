@@ -1,22 +1,26 @@
-FROM oven/bun:1.2.18 AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-COPY package.json bun.lock turbo.json tsconfig.base.json ./
+RUN corepack enable
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json ./
 COPY packages ./packages
 
-RUN bun install --frozen-lockfile
-RUN bun run build
+RUN pnpm install --frozen-lockfile
+RUN pnpm run build
 
-FROM oven/bun:1.2.18 AS deps
+FROM node:22-alpine AS deps
 
 WORKDIR /app
 
-COPY package.json bun.lock ./
+RUN corepack enable
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/openai-oauth/package.json ./packages/openai-oauth/package.json
 COPY packages/openai-oauth-core/package.json ./packages/openai-oauth-core/package.json
 COPY packages/openai-oauth-provider/package.json ./packages/openai-oauth-provider/package.json
-RUN bun install --frozen-lockfile --production --filter llm-compatible-api
+RUN pnpm install --frozen-lockfile --prod --filter llm-compatible-api
 
 FROM node:22-alpine AS runtime
 
