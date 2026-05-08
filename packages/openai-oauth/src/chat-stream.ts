@@ -52,8 +52,9 @@ export const streamChatCompletions = async (
 	const toolsWithDeltas = new Set<string>()
 	const created = Math.floor(Date.now() / 1000)
 	const id = `chatcmpl_${crypto.randomUUID()}`
+	const model = request.model as string
 	const result = streamText({
-		model: runtime.modelFactory(request.model ?? runtime.defaultModel),
+		model: runtime.modelFactory(model),
 		messages: toModelMessages(request.messages ?? []),
 		tools: createToolSet(request.tools),
 		toolChoice: toToolChoice(request.tool_choice),
@@ -76,7 +77,7 @@ export const streamChatCompletions = async (
 					id,
 					object: "chat.completion.chunk",
 					created,
-					model: request.model,
+					model,
 					choices: [
 						{ index: 0, delta: { role: "assistant" }, finish_reason: null },
 					],
@@ -91,7 +92,7 @@ export const streamChatCompletions = async (
 								id,
 								object: "chat.completion.chunk",
 								created,
-								model: request.model,
+								model,
 								choices: [
 									{
 										index: 0,
@@ -110,7 +111,7 @@ export const streamChatCompletions = async (
 								id,
 								object: "chat.completion.chunk",
 								created,
-								model: request.model,
+								model,
 								choices: [
 									{
 										index: 0,
@@ -143,7 +144,7 @@ export const streamChatCompletions = async (
 								id,
 								object: "chat.completion.chunk",
 								created,
-								model: request.model,
+								model,
 								choices: [
 									{
 										index: 0,
@@ -174,7 +175,7 @@ export const streamChatCompletions = async (
 								id,
 								object: "chat.completion.chunk",
 								created,
-								model: request.model,
+								model,
 								choices: [
 									{
 										index: 0,
@@ -208,7 +209,7 @@ export const streamChatCompletions = async (
 								id,
 								object: "chat.completion.chunk",
 								created,
-								model: request.model,
+								model,
 								choices: [
 									{
 										index: 0,
@@ -223,7 +224,7 @@ export const streamChatCompletions = async (
 								id,
 								object: "chat.completion.chunk",
 								created,
-								model: request.model,
+								model,
 								choices: [],
 								usage: toUsage(part.totalUsage),
 							}),

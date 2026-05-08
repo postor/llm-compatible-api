@@ -223,6 +223,7 @@ describe("interactive profile setup", () => {
 			"",
 			"1",
 			"sk-test-key",
+			"sk-local-client-key",
 			"",
 			"",
 			"",
@@ -234,7 +235,7 @@ describe("interactive profile setup", () => {
 			upstreamApiFormat: "chat",
 			baseURL: "https://api.openai.com/v1",
 			apiKey: "sk-test-key",
-			exposedApiKey: "sk-test-key",
+			exposedApiKey: "sk-local-client-key",
 			port: 10531,
 		})
 		expect(profile.authFilePath).toBeUndefined()
@@ -248,8 +249,9 @@ describe("interactive profile setup", () => {
 		expect(prompts).toContain("Upstream base URL")
 		expect(prompts).toContain("API key")
 		expect(prompts).toContain("Source API key mode")
-		expect(prompts).toContain("1. Use upstream API key for clients (default)")
-		expect(prompts).toContain("2. Use separate client API key")
+		expect(prompts).toContain("1. Use separate client API key")
+		expect(prompts).toContain("2. Bypass client API key to upstream")
+		expect(prompts).not.toContain("Use upstream API key for clients")
 		expect(prompts).not.toContain("API key source")
 		expect(prompts).not.toContain("API key env var")
 		expect(prompts).not.toContain("(official/unofficial/anthropic)")
@@ -261,7 +263,7 @@ describe("interactive profile setup", () => {
 			"2",
 			"2",
 			"",
-			"2",
+			"1",
 			"sk-upstream-key",
 			"sk-local-client-key",
 			"",
@@ -287,7 +289,7 @@ describe("interactive profile setup", () => {
 			"2",
 			"2",
 			"",
-			"3",
+			"2",
 			"",
 			"",
 			"",
@@ -303,7 +305,7 @@ describe("interactive profile setup", () => {
 		expect(profile.apiKey).toBeUndefined()
 		expect(profile.exposedApiKey).toBeUndefined()
 		expect(prompts).toContain("Source API key mode")
-		expect(prompts).toContain("3. Bypass client API key to upstream")
+		expect(prompts).toContain("2. Bypass client API key to upstream")
 		expect(prompts).not.toContain("API key: ")
 	})
 
@@ -315,7 +317,7 @@ describe("interactive profile setup", () => {
 			"https://third.example.test/v1",
 			"1",
 			"aaa",
-			"",
+			"sk-local-client-key",
 			"0.0.0.0",
 			"",
 			"",
@@ -327,7 +329,7 @@ describe("interactive profile setup", () => {
 			upstreamApiFormat: "responses",
 			baseURL: "https://third.example.test/v1",
 			apiKey: "aaa",
-			exposedApiKey: "aaa",
+			exposedApiKey: "sk-local-client-key",
 			host: "0.0.0.0",
 			port: 10531,
 		})
@@ -342,7 +344,7 @@ describe("interactive profile setup", () => {
 			"",
 			"1",
 			"aaa",
-			"",
+			"sk-local-client-key",
 			"0.0.0.0",
 			"",
 			"",
@@ -354,7 +356,7 @@ describe("interactive profile setup", () => {
 			upstreamApiFormat: "responses",
 			baseURL: "https://api.openai.com/v1",
 			apiKey: "aaa",
-			exposedApiKey: "aaa",
+			exposedApiKey: "sk-local-client-key",
 			host: "0.0.0.0",
 			port: 10531,
 		})
@@ -376,7 +378,7 @@ describe("interactive profile setup", () => {
 				"",
 				"1",
 				"aaa",
-				"",
+				"sk-local-client-key",
 				"0.0.0.0",
 				"",
 				"",
@@ -398,7 +400,7 @@ describe("interactive profile setup", () => {
 				upstreamApiFormat: "responses",
 				baseURL: "https://api.openai.com/v1",
 				apiKey: "aaa",
-				exposedApiKey: "aaa",
+				exposedApiKey: "sk-local-client-key",
 				host: "0.0.0.0",
 				port: 10531,
 			},
@@ -414,7 +416,17 @@ describe("interactive profile setup", () => {
 
 	test("keeps the existing API key when selected", async () => {
 		const { result: profile, prompts } = await collectWithAnswers(
-			["third-party-profile", "2", "2", "", "1", "1", "", "", ""],
+			[
+				"third-party-profile",
+				"2",
+				"2",
+				"",
+				"1",
+				"1",
+				"sk-local-client-key",
+				"",
+				"",
+			],
 			{
 				sourceKind: "openai",
 				upstreamApiFormat: "chat",
@@ -439,6 +451,7 @@ describe("interactive profile setup", () => {
 				"1",
 				"2",
 				"sk-new-key",
+				"sk-local-client-key",
 				"",
 				"",
 			],

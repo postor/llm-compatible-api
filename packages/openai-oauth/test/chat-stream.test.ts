@@ -81,7 +81,6 @@ const dummyRuntime: BridgeRuntime = {
 	sourceKind: "codex",
 	modelFactory: () => dummyModel,
 	resolveModels: async () => ["gpt-5.4"],
-	defaultModel: "gpt-5.4",
 	supportsOpenAIResponses: true,
 }
 const dummyLogContext = {

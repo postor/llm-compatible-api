@@ -56,7 +56,7 @@ pnpm run dev serve --source openai --api-key-env OPENAI_API_KEY --port 10531
 - Env vars are for direct `serve` / `.env`, not interactive setup.
 - Direct-start env needs source + API key; base URL defaults to official OpenAI/Anthropic.
 - OpenAI-compatible format defaults to Chat Completions.
-- Init asks whether local proxy clients should reuse the source API key, use a separate client API key, or bypass the client Bearer key to the upstream.
+- Init asks whether local proxy clients should use a separate client API key, bypass the client key to the upstream, or skip local client auth.
 - After setup, always offer Test profile / End setup; do not remember or auto-skip this choice.
 - Profile test sends a `hello` request and prints an in-progress message before the network call.
 - Profile test must send `hello` once only; do not use SDK retries for this probe.
@@ -76,7 +76,7 @@ pnpm run dev serve --source openai --api-key-env OPENAI_API_KEY --port 10531
 ## Refactor While Developing
 
 - When adding a feature, simplify nearby code if it reduces future bugs.
-- Keep shared defaults in one place and import them instead of duplicating URLs or model defaults.
+- Keep shared defaults in one place and import them instead of duplicating URLs.
 - Prefer small extracted helpers over long interactive flows with hidden state.
 - Test real user paths, not only mocked internals; for CLI work, include at least one stdin/command simulation when relevant.
 - If a test passes but the real command fails, treat the test as incomplete and improve it.

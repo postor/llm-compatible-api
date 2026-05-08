@@ -7,7 +7,7 @@ import type { StoredBridgeProfile } from "./types.js"
 type UpstreamProvider = "official" | "unofficial" | "anthropic"
 type OpenAICompatibleApiFormat = "responses" | "chat"
 type ExistingSecretAction = "keep" | "replace"
-type SourceApiKeyModeAction = "source" | "separate" | "bypass" | "none"
+type SourceApiKeyModeAction = "separate" | "bypass" | "none"
 export type PostConfigAction = "test" | "end"
 
 type Choice<T extends string> = {
@@ -367,16 +367,15 @@ const collectSourceApiKeyMode = async (
 		rl,
 		"Source API key mode",
 		[
-			{ label: "Use upstream API key for clients", value: "source" },
 			{ label: "Use separate client API key", value: "separate" },
 			{ label: "Bypass client API key to upstream", value: "bypass" },
 			{ label: "No client API key", value: "none" },
 		],
 		existing?.clientApiKeyMode === "bypass"
 			? "bypass"
-			: existing?.exposedApiKey && existing?.exposedApiKey !== existing?.apiKey
+			: existing?.exposedApiKey
 				? "separate"
-				: "source",
+				: "none",
 	)
 
 	if (action === "bypass") {
@@ -388,12 +387,6 @@ const collectSourceApiKeyMode = async (
 	}
 
 	const apiKey = await collectApiKey(rl, existing?.apiKey)
-	if (action === "source") {
-		return {
-			apiKey,
-			exposedApiKey: apiKey,
-		}
-	}
 	if (action === "separate") {
 		return {
 			apiKey,
@@ -467,16 +460,7 @@ const collectProfileWithReadline = async (
 					existing?.authFilePath ?? "~/.codex/auth.json",
 				)
 			: ""
-	const apiKeyMode = await collectSourceApiKeyMode(
-		rl,
-		sourceKind,
-		existing,
-	)
-	const defaultModel = await ask(
-		rl,
-		"Default model (blank to use built-in fallback)",
-		existing?.defaultModel ?? "",
-	)
+	const apiKeyMode = await collectSourceApiKeyMode(rl, sourceKind, existing)
 	const host = await ask(rl, "Bind host", existing?.host ?? "127.0.0.1")
 	const portValue = await ask(
 		rl,
@@ -504,7 +488,6 @@ const collectProfileWithReadline = async (
 		authTokenEnvVar: undefined,
 		exposedApiKey: apiKeyMode.exposedApiKey || undefined,
 		clientApiKeyMode: apiKeyMode.clientApiKeyMode,
-		defaultModel: defaultModel || undefined,
 		host: host || undefined,
 		port: Number.isFinite(Number(portValue)) ? Number(portValue) : undefined,
 		headers: normalizeHeaders(headersValue),

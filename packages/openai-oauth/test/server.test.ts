@@ -101,22 +101,24 @@ describe("openai oauth server", () => {
 	})
 
 	test("uses the client bearer token as the upstream key in bypass mode", async () => {
-		const fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-			expect(new Headers(init?.headers).get("authorization")).toBe(
-				"Bearer sk-client-upstream-key",
-			)
-			return new Response(
-				JSON.stringify({
-					data: [{ id: "gpt-client-key-model" }],
-				}),
-				{
-					status: 200,
-					headers: {
-						"Content-Type": "application/json",
+		const fetch = vi.fn(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				expect(new Headers(init?.headers).get("authorization")).toBe(
+					"Bearer sk-client-upstream-key",
+				)
+				return new Response(
+					JSON.stringify({
+						data: [{ id: "gpt-client-key-model" }],
+					}),
+					{
+						status: 200,
+						headers: {
+							"Content-Type": "application/json",
+						},
 					},
-				},
-			)
-		})
+				)
+			},
+		)
 		const handler = createOpenAIOAuthFetchHandler({
 			sourceKind: "openai",
 			upstreamApiFormat: "chat",
@@ -158,36 +160,38 @@ describe("openai oauth server", () => {
 	})
 
 	test("passes the client bearer token upstream for chat requests in bypass mode", async () => {
-		const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-			expect(String(input)).toBe("https://example.test/v1/chat/completions")
-			expect(init?.method).toBe("POST")
-			expect(new Headers(init?.headers).get("authorization")).toBe(
-				"Bearer sk-client-upstream-key",
-			)
-			expect(JSON.parse(String(init?.body))).toMatchObject({
-				model: "gpt-client-key-model",
-				messages: [{ role: "user", content: "hello" }],
-			})
-			return new Response(
-				JSON.stringify({
-					id: "chatcmpl_test",
-					object: "chat.completion",
-					choices: [
-						{
-							index: 0,
-							message: { role: "assistant", content: "hello back" },
-							finish_reason: "stop",
+		const fetch = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				expect(String(input)).toBe("https://example.test/v1/chat/completions")
+				expect(init?.method).toBe("POST")
+				expect(new Headers(init?.headers).get("authorization")).toBe(
+					"Bearer sk-client-upstream-key",
+				)
+				expect(JSON.parse(String(init?.body))).toMatchObject({
+					model: "gpt-client-key-model",
+					messages: [{ role: "user", content: "hello" }],
+				})
+				return new Response(
+					JSON.stringify({
+						id: "chatcmpl_test",
+						object: "chat.completion",
+						choices: [
+							{
+								index: 0,
+								message: { role: "assistant", content: "hello back" },
+								finish_reason: "stop",
+							},
+						],
+					}),
+					{
+						status: 200,
+						headers: {
+							"Content-Type": "application/json",
 						},
-					],
-				}),
-				{
-					status: 200,
-					headers: {
-						"Content-Type": "application/json",
 					},
-				},
-			)
-		})
+				)
+			},
+		)
 		const handler = createOpenAIOAuthFetchHandler({
 			sourceKind: "openai",
 			upstreamApiFormat: "chat",
@@ -263,6 +267,7 @@ describe("openai oauth server", () => {
 		})
 		const handler = createOpenAIOAuthFetchHandler({
 			authFilePath,
+			codexVersion: "0.114.0",
 			ensureFresh: false,
 			fetch,
 		})
@@ -317,6 +322,7 @@ describe("openai oauth server", () => {
 		)
 		const handler = createOpenAIOAuthFetchHandler({
 			authFilePath,
+			codexVersion: "0.114.0",
 			ensureFresh: false,
 			fetch,
 		})
@@ -533,5 +539,148 @@ describe("openai oauth server", () => {
 				message: "`messages` must be an array.",
 			}),
 		)
+	})
+
+	test("returns estimated tokens for Claude Code count_tokens on non-anthropic sources", async () => {
+		const handler = createOpenAIOAuthFetchHandler({
+			models: ["gpt-5.2"],
+		})
+
+		const response = await handler(
+			new Request("http://localhost/v1/messages/count_tokens", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					model: "gpt-5.2",
+					messages: [{ role: "user", content: "hello" }],
+				}),
+			}),
+		)
+
+		expect(response.status).toBe(200)
+		await expect(response.json()).resolves.toMatchObject({
+			input_tokens: expect.any(Number),
+		})
+	})
+
+	test("forwards Claude Code count_tokens to anthropic sources with anthropic headers", async () => {
+		const fetch = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				expect(String(input)).toBe(
+					"https://anthropic.example.test/v1/messages/count_tokens",
+				)
+				expect(init?.method).toBe("POST")
+				const headers = new Headers(init?.headers)
+				expect(headers.get("x-api-key")).toBe("test-key")
+				expect(headers.get("anthropic-version")).toBe("2023-06-01")
+				expect(headers.get("anthropic-beta")).toBe(
+					"fine-grained-tool-streaming-2025-05-14",
+				)
+				expect(JSON.parse(String(init?.body))).toMatchObject({
+					model: "claude-sonnet-4-6",
+					anthropic_beta: ["fine-grained-tool-streaming-2025-05-14"],
+					messages: [{ role: "user", content: "hello" }],
+				})
+
+				return new Response(JSON.stringify({ input_tokens: 7 }), {
+					status: 200,
+					headers: {
+						"Content-Type": "application/json",
+					},
+				})
+			},
+		)
+
+		const handler = createOpenAIOAuthFetchHandler({
+			sourceKind: "anthropic",
+			baseURL: "https://anthropic.example.test/v1",
+			apiKey: "test-key",
+			fetch,
+		})
+
+		const response = await handler(
+			new Request("http://localhost/v1/messages/count_tokens", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"anthropic-version": "2023-06-01",
+					"anthropic-beta": "fine-grained-tool-streaming-2025-05-14",
+				},
+				body: JSON.stringify({
+					model: "claude-sonnet-4-6",
+					messages: [{ role: "user", content: "hello" }],
+				}),
+			}),
+		)
+
+		expect(response.status).toBe(200)
+		expect(fetch).toHaveBeenCalledTimes(1)
+		await expect(response.json()).resolves.toEqual({ input_tokens: 7 })
+	})
+
+	test("passes the Claude Code x-api-key upstream in bypass mode", async () => {
+		const fetch = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				expect(String(input)).toBe(
+					"https://anthropic.example.test/v1/messages/count_tokens",
+				)
+				expect(new Headers(init?.headers).get("x-api-key")).toBe(
+					"sk-client-upstream-key",
+				)
+				expect(JSON.parse(String(init?.body))).toMatchObject({
+					model: "claude-sonnet-4-6",
+					messages: [{ role: "user", content: "hello" }],
+				})
+
+				return new Response(JSON.stringify({ input_tokens: 9 }), {
+					status: 200,
+					headers: {
+						"Content-Type": "application/json",
+					},
+				})
+			},
+		)
+
+		const handler = createOpenAIOAuthFetchHandler({
+			sourceKind: "anthropic",
+			baseURL: "https://anthropic.example.test/v1",
+			clientApiKeyMode: "bypass",
+			fetch,
+		})
+
+		const missing = await handler(
+			new Request("http://localhost/v1/messages/count_tokens", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					model: "claude-sonnet-4-6",
+					messages: [{ role: "user", content: "hello" }],
+				}),
+			}),
+		)
+		expect(missing.status).toBe(401)
+		expect(fetch).not.toHaveBeenCalled()
+
+		const authorized = await handler(
+			new Request("http://localhost/v1/messages/count_tokens", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-api-key": "sk-client-upstream-key",
+				},
+				body: JSON.stringify({
+					model: "claude-sonnet-4-6",
+					messages: [{ role: "user", content: "hello" }],
+				}),
+			}),
+		)
+
+		expect(authorized.status).toBe(200)
+		expect(fetch).toHaveBeenCalledTimes(1)
+		await expect(authorized.json()).resolves.toEqual({ input_tokens: 9 })
 	})
 })

@@ -1,7 +1,10 @@
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
-import { type CodexOAuthSettings } from "../../openai-oauth-core/src/index.js"
-import { handleAnthropicMessagesRequest } from "./anthropic-messages.js"
+import type { CodexOAuthSettings } from "../../openai-oauth-core/src/index.js"
+import {
+	handleAnthropicCountTokensRequest,
+	handleAnthropicMessagesRequest,
+} from "./anthropic-messages.js"
 import { handleChatCompletionsRequest } from "./chat-completions.js"
 import { createRequestLogger } from "./logging.js"
 import { handleResponsesRequest } from "./responses.js"
@@ -32,13 +35,23 @@ const readBearerToken = (request: Request): string | undefined => {
 	return match?.[1]?.trim()
 }
 
+const readClientApiKey = (request: Request): string | undefined => {
+	const bearerToken = readBearerToken(request)
+	if (bearerToken) {
+		return bearerToken
+	}
+
+	const apiKey = request.headers.get("x-api-key")?.trim()
+	return apiKey && apiKey.length > 0 ? apiKey : undefined
+}
+
 const requireClientApiKey = (
 	request: Request,
 	settings: OpenAIOAuthServerOptions,
 ): { response?: Response; upstreamApiKey?: string } => {
-	const bearerToken = readBearerToken(request)
+	const clientApiKey = readClientApiKey(request)
 	if (settings.clientApiKeyMode === "bypass") {
-		if (!bearerToken) {
+		if (!clientApiKey) {
 			return {
 				response: toErrorResponse(
 					"Missing or invalid API key.",
@@ -48,10 +61,10 @@ const requireClientApiKey = (
 			}
 		}
 
-		return { upstreamApiKey: bearerToken }
+		return { upstreamApiKey: clientApiKey }
 	}
 
-	if (settings.exposedApiKey && bearerToken !== settings.exposedApiKey) {
+	if (settings.exposedApiKey && clientApiKey !== settings.exposedApiKey) {
 		return {
 			response: toErrorResponse(
 				"Missing or invalid API key.",
@@ -143,6 +156,13 @@ const handleRoutes = async (
 
 	if (request.method === "POST" && url.pathname === "/v1/messages") {
 		return handleAnthropicMessagesRequest(request, runtime, requestLogger)
+	}
+
+	if (
+		request.method === "POST" &&
+		url.pathname === "/v1/messages/count_tokens"
+	) {
+		return handleAnthropicCountTokensRequest(request, runtime)
 	}
 
 	return toErrorResponse("Route not found.", 404, "not_found_error")

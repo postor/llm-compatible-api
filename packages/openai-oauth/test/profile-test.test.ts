@@ -13,7 +13,6 @@ describe("profile test probe", () => {
 		const model = { id: "model" }
 		const runtime: BridgeRuntime = {
 			sourceKind: "openai",
-			defaultModel: "fallback-model",
 			modelFactory: vi.fn(() => model as never),
 			resolveModels: vi.fn(async () => ["gpt-test"]),
 			supportsOpenAIResponses: true,
@@ -36,7 +35,7 @@ describe("profile test probe", () => {
 		vi.doUnmock("ai")
 	})
 
-	test("falls back to the runtime default model when model discovery is empty", async () => {
+	test("fails when model discovery is empty", async () => {
 		const generateText = vi.fn(async () => ({ text: "default hello" }))
 		vi.resetModules()
 		vi.doMock("ai", () => ({
@@ -47,19 +46,17 @@ describe("profile test probe", () => {
 		const model = { id: "default" }
 		const runtime: BridgeRuntime = {
 			sourceKind: "codex",
-			defaultModel: "fallback-model",
 			modelFactory: vi.fn(() => model as never),
 			resolveModels: vi.fn(async () => []),
 			supportsOpenAIResponses: true,
 		}
 
-		const result = await testProfileWithHello(runtime)
+		await expect(testProfileWithHello(runtime)).rejects.toThrow(
+			"Profile test could not resolve a model from upstream.",
+		)
 
-		expect(runtime.modelFactory).toHaveBeenCalledWith("fallback-model")
-		expect(result).toEqual({
-			model: "fallback-model",
-			text: "default hello",
-		})
+		expect(runtime.modelFactory).not.toHaveBeenCalled()
+		expect(generateText).not.toHaveBeenCalled()
 		vi.doUnmock("ai")
 	})
 
@@ -74,7 +71,6 @@ describe("profile test probe", () => {
 		const model = { id: "preferred" }
 		const runtime: BridgeRuntime = {
 			sourceKind: "openai",
-			defaultModel: "gpt-5.5",
 			modelFactory: vi.fn(() => model as never),
 			resolveModels: vi.fn(async () => [
 				"claude-3-5-haiku-20241022",
@@ -124,7 +120,6 @@ describe("profile test probe", () => {
 		const runtime: BridgeRuntime = {
 			sourceKind: "openai",
 			upstreamApiFormat: "chat",
-			defaultModel: "fallback-model",
 			modelFactory: vi.fn(),
 			resolveModels: vi.fn(async () => ["gpt-chat"]),
 			supportsOpenAIResponses: false,

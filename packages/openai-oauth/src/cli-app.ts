@@ -31,7 +31,6 @@ import { checkForOpenAIOAuthUpdates } from "./update-check.js"
 export type CliArgs = {
 	host?: string
 	port?: number
-	models?: string[]
 	codexVersion?: string
 	baseURL?: string
 	clientId?: string
@@ -39,7 +38,6 @@ export type CliArgs = {
 	authFilePath?: string
 	sourceKind?: "codex" | "openai" | "anthropic"
 	upstreamApiFormat?: "responses" | "chat"
-	defaultModel?: string
 	profileName?: string
 	apiKey?: string
 	apiKeyEnvVar?: string
@@ -53,19 +51,6 @@ export type CliArgs = {
 type ProfileSaveArgs = CliArgs & {
 	name?: string
 	setDefault?: boolean
-}
-
-const parseModels = (value: string | undefined): string[] | undefined => {
-	if (typeof value !== "string") {
-		return undefined
-	}
-
-	const models = value
-		.split(",")
-		.map((entry) => entry.trim())
-		.filter((entry) => entry.length > 0)
-
-	return models.length > 0 ? models : undefined
 }
 
 const parsePort = (value: string | undefined): number | undefined => {
@@ -161,8 +146,6 @@ const readDirectStartEnv = (): Partial<CliArgs> => {
 		apiKey,
 		host: process.env.LLM_COMPATIBLE_API_HOST,
 		port: parsePort(process.env.LLM_COMPATIBLE_API_PORT),
-		models: parseModels(process.env.LLM_COMPATIBLE_API_MODELS),
-		defaultModel: process.env.LLM_COMPATIBLE_API_DEFAULT_MODEL,
 		exposedApiKey: process.env.LLM_COMPATIBLE_API_EXPOSED_API_KEY,
 		clientApiKeyMode,
 		upstreamApiFormat:
@@ -209,8 +192,6 @@ const helpLines = [
 	"  --profile <name>           Load a saved profile.",
 	"  --host <host>              Host interface to bind to.",
 	"  --port <port>              Port to listen on. Default: 10531",
-	"  --models <ids>             Comma-separated model ids to expose from /v1/models.",
-	"  --default-model <id>       Default model when the client omits one.",
 	"",
 	"Flags",
 	"  --help                     Show help",
@@ -225,10 +206,6 @@ const createServeCliParser = (argv: string[]) =>
 		.version(false)
 		.option("host", { type: "string" })
 		.option("port", { type: "number" })
-		.option("models", {
-			type: "string",
-			coerce: parseModels,
-		})
 		.option("codex-version", { type: "string" })
 		.option("base-url", { type: "string" })
 		.option("upstream-api-format", {
@@ -242,7 +219,6 @@ const createServeCliParser = (argv: string[]) =>
 			type: "string",
 			choices: ["codex", "openai", "anthropic"],
 		})
-		.option("default-model", { type: "string" })
 		.option("profile", { type: "string" })
 		.option("api-key", { type: "string" })
 		.option("api-key-env", { type: "string" })
@@ -273,7 +249,6 @@ export const parseCliArgs = (argv: string[]): CliArgs => {
 	return {
 		host: parsed.host ?? directStartEnv.host,
 		port: parsed.port ?? directStartEnv.port,
-		models: parsed.models ?? directStartEnv.models,
 		codexVersion: parsed.codexVersion,
 		baseURL: parsed.baseUrl ?? directStartEnv.baseURL,
 		clientId: parsed.oauthClientId,
@@ -283,7 +258,6 @@ export const parseCliArgs = (argv: string[]): CliArgs => {
 		upstreamApiFormat:
 			parseUpstreamApiFormat(parsed.upstreamApiFormat) ??
 			directStartEnv.upstreamApiFormat,
-		defaultModel: parsed.defaultModel ?? directStartEnv.defaultModel,
 		profileName: parsed.profile,
 		apiKey: parsed.apiKey ?? directStartEnv.apiKey,
 		apiKeyEnvVar: parsed.apiKeyEnv,
@@ -308,7 +282,6 @@ export const toServerOptions = (
 ): OpenAIOAuthServerOptions => ({
 	host: args.host,
 	port: args.port ?? DEFAULT_PORT,
-	models: args.models,
 	codexVersion: args.codexVersion,
 	baseURL: args.baseURL,
 	clientId: args.clientId,
@@ -316,7 +289,6 @@ export const toServerOptions = (
 	authFilePath: expandUserHome(args.authFilePath),
 	sourceKind: args.sourceKind,
 	upstreamApiFormat: args.upstreamApiFormat,
-	defaultModel: args.defaultModel,
 	apiKey: args.apiKey,
 	apiKeyEnvVar: args.apiKeyEnvVar,
 	authToken: args.authToken,
@@ -337,7 +309,6 @@ const mergeProfileWithArgs = (
 	return {
 		host: args.host ?? profile.host,
 		port: args.port ?? profile.port,
-		models: args.models ?? profile.models,
 		codexVersion: args.codexVersion ?? profile.codexVersion,
 		baseURL: args.baseURL ?? profile.baseURL,
 		clientId: args.clientId ?? profile.clientId,
@@ -345,7 +316,6 @@ const mergeProfileWithArgs = (
 		authFilePath: args.authFilePath ?? profile.authFilePath,
 		sourceKind: args.sourceKind ?? profile.sourceKind,
 		upstreamApiFormat: args.upstreamApiFormat ?? profile.upstreamApiFormat,
-		defaultModel: args.defaultModel ?? profile.defaultModel,
 		profileName: args.profileName ?? profile.name,
 		apiKey: args.apiKey ?? profile.apiKey,
 		apiKeyEnvVar: args.apiKeyEnvVar ?? profile.apiKeyEnvVar,
@@ -419,14 +389,12 @@ const hasExplicitServeOptions = (args: CliArgs): boolean =>
 	Boolean(
 		args.host ||
 			args.port ||
-			args.models ||
 			args.codexVersion ||
 			args.baseURL ||
 			args.clientId ||
 			args.tokenUrl ||
 			args.authFilePath ||
 			args.sourceKind ||
-			args.defaultModel ||
 			args.profileName ||
 			args.apiKey ||
 			args.apiKeyEnvVar ||
@@ -452,8 +420,6 @@ const toStoredProfile = (name: string, args: CliArgs): StoredBridgeProfile => ({
 	clientId: args.clientId,
 	tokenUrl: args.tokenUrl,
 	codexVersion: args.codexVersion,
-	models: args.models,
-	defaultModel: args.defaultModel,
 	host: args.host,
 	port: args.port,
 	headers: args.headers,
@@ -489,13 +455,8 @@ const resolveServeArgs = async (argv: string[]): Promise<CliArgs> => {
 }
 
 const resolveStartupModels = async (
-	options: OpenAIOAuthServerOptions,
 	runtime: ReturnType<typeof createBridgeRuntime>,
 ): Promise<string[]> => {
-	if (options.clientApiKeyMode === "bypass") {
-		return options.models?.length ? options.models : [runtime.defaultModel]
-	}
-
 	return runtime.resolveModels()
 }
 
@@ -523,7 +484,7 @@ const runServeCommand = async (argv: string[]) => {
 	}
 
 	const runtime = createBridgeRuntime(options)
-	const availableModels = await resolveStartupModels(options, runtime)
+	const availableModels = await resolveStartupModels(runtime)
 	const server = await startOpenAIOAuthServer(options)
 
 	console.log(
@@ -579,7 +540,7 @@ const runInitCommand = async () => {
 		console.log(
 			`Testing profile with hello against ${profile.baseURL ?? "default upstream"} (${profile.upstreamApiFormat ?? profile.sourceKind})...`,
 		)
-		const result = await testProfileWithHello(runtime, profile.defaultModel)
+		const result = await testProfileWithHello(runtime)
 		console.log(`Profile test passed with model "${result.model}".`)
 		console.log(`Assistant response: ${result.text}`)
 	} catch (error) {

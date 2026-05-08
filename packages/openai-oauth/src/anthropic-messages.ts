@@ -1,17 +1,25 @@
 import { Buffer } from "node:buffer"
-import { generateText, jsonSchema, streamText, tool, type ModelMessage } from "ai"
+import {
+	generateText,
+	jsonSchema,
+	type ModelMessage,
+	streamText,
+	tool,
+} from "ai"
 import { emitRequestLog } from "./logging.js"
 import { toAnthropicTargetProviderOptions } from "./model-options.js"
 import {
+	copyUpstreamResponse,
 	corsHeaders,
 	isJsonValue,
 	isRecord,
 	sseHeaders,
 	toErrorResponse,
+	toJsonResponse,
 } from "./shared.js"
 import type {
 	AnthropicContentBlock,
-	AnthropicMessage,
+	AnthropicCountTokensRequest,
 	AnthropicMessageRequest,
 	AnthropicToolChoice,
 	AnthropicToolDefinition,
@@ -24,6 +32,35 @@ import type {
 
 const anthropicHeaders = {
 	"anthropic-version": "2023-06-01",
+}
+
+const readAnthropicBetas = (headers: Headers): string[] | undefined => {
+	const value = headers.get("anthropic-beta")
+	if (typeof value !== "string" || value.trim().length === 0) {
+		return undefined
+	}
+
+	const betas = value
+		.split(",")
+		.map((part) => part.trim())
+		.filter((part) => part.length > 0)
+
+	return betas.length > 0 ? betas : undefined
+}
+
+const withAnthropicRequestHeaders = <T extends AnthropicMessageRequest>(
+	request: Request,
+	body: T,
+): T => {
+	const anthropicBeta = readAnthropicBetas(request.headers)
+	if (!anthropicBeta || Array.isArray(body.anthropic_beta)) {
+		return body
+	}
+
+	return {
+		...body,
+		anthropic_beta: anthropicBeta,
+	}
 }
 
 const encodeEvent = (event: string, data: unknown): Uint8Array =>
@@ -83,10 +120,12 @@ const parseImageBlock = (
 
 const toAnthropicUserParts = (
 	content: string | AnthropicContentBlock[] | undefined,
-): string | Array<
-	| { type: "text"; text: string }
-	| { type: "image"; image: Uint8Array; mediaType?: string }
-> => {
+):
+	| string
+	| Array<
+			| { type: "text"; text: string }
+			| { type: "image"; image: Uint8Array; mediaType?: string }
+	  > => {
 	if (typeof content === "string") {
 		return content
 	}
@@ -109,9 +148,7 @@ const toAnthropicUserParts = (
 		const imagePart = parseImageBlock(block)
 		if (imagePart) {
 			parts.push(imagePart)
-			continue
 		}
-
 	}
 
 	return parts.length > 0 ? parts : ""
@@ -157,11 +194,18 @@ const toAnthropicToolResults = (
 const toAnthropicAssistantContent = (
 	content: string | AnthropicContentBlock[] | undefined,
 	toolNamesById: Map<string, string>,
-): string | Array<
-	| { type: "text"; text: string }
-	| { type: "reasoning"; text: string }
-	| { type: "tool-call"; toolCallId: string; toolName: string; input: unknown }
-> => {
+):
+	| string
+	| Array<
+			| { type: "text"; text: string }
+			| { type: "reasoning"; text: string }
+			| {
+					type: "tool-call"
+					toolCallId: string
+					toolName: string
+					input: unknown
+			  }
+	  > => {
 	if (typeof content === "string") {
 		return content
 	}
@@ -173,7 +217,12 @@ const toAnthropicAssistantContent = (
 	const parts: Array<
 		| { type: "text"; text: string }
 		| { type: "reasoning"; text: string }
-		| { type: "tool-call"; toolCallId: string; toolName: string; input: unknown }
+		| {
+				type: "tool-call"
+				toolCallId: string
+				toolName: string
+				input: unknown
+		  }
 	> = []
 
 	for (const block of content) {
@@ -322,7 +371,11 @@ const toAnthropicToolChoice = (
 			toolName: string
 	  }
 	| undefined => {
-	if (toolChoice == null || toolChoice.type == null || toolChoice.type === "auto") {
+	if (
+		toolChoice == null ||
+		toolChoice.type == null ||
+		toolChoice.type === "auto"
+	) {
 		return "auto"
 	}
 
@@ -361,6 +414,41 @@ const toAnthropicUsage = (usage: UsageLike) => ({
 	cache_read_input_tokens: usage.cachedInputTokens,
 })
 
+const estimateJsonTokens = (value: unknown): number => {
+	if (value == null) {
+		return 0
+	}
+
+	if (typeof value === "string") {
+		return Math.ceil(value.length / 4)
+	}
+
+	if (
+		typeof value === "number" ||
+		typeof value === "boolean" ||
+		Array.isArray(value) ||
+		typeof value === "object"
+	) {
+		return Math.ceil(JSON.stringify(value).length / 4)
+	}
+
+	return 0
+}
+
+const estimateAnthropicInputTokens = (
+	request: AnthropicCountTokensRequest,
+): number => {
+	const tokens =
+		estimateJsonTokens(request.system) +
+		estimateJsonTokens(request.messages) +
+		estimateJsonTokens(request.tools) +
+		estimateJsonTokens(request.tool_choice) +
+		estimateJsonTokens(request.thinking) +
+		estimateJsonTokens(request.mcp_servers)
+
+	return Math.max(1, tokens)
+}
+
 const summarizeAnthropicRequest = (request: AnthropicMessageRequest) => ({
 	bodyKeys: Object.keys(request).sort(),
 	messageCount: request.messages?.length ?? 0,
@@ -377,16 +465,19 @@ const summarizeAnthropicRequest = (request: AnthropicMessageRequest) => ({
 	toolCount: request.tools?.length ?? 0,
 })
 
-const toAnthropicResponseContent = (
-	result: {
-		text: string
-		toolCalls: Array<{
-			toolCallId: string
-			toolName: string
-			input: unknown
-		}>
-	},
-) => {
+const requireModel = (model: string | undefined): string | undefined =>
+	typeof model === "string" && model.trim().length > 0
+		? model.trim()
+		: undefined
+
+const toAnthropicResponseContent = (result: {
+	text: string
+	toolCalls: Array<{
+		toolCallId: string
+		toolName: string
+		input: unknown
+	}>
+}) => {
 	const content: Array<Record<string, unknown>> = []
 	if (result.text.length > 0) {
 		content.push({
@@ -414,7 +505,10 @@ export const handleAnthropicMessagesRequest = async (
 ): Promise<Response> => {
 	const requestId = crypto.randomUUID()
 	const startedAt = Date.now()
-	const body = (await request.json()) as AnthropicMessageRequest
+	const body = withAnthropicRequestHeaders(
+		request,
+		(await request.json()) as AnthropicMessageRequest,
+	)
 
 	if (!isRecord(body) || !Array.isArray(body.messages)) {
 		emitRequestLog(logger, {
@@ -425,6 +519,18 @@ export const handleAnthropicMessagesRequest = async (
 			message: "`messages` must be an array.",
 		})
 		return toErrorResponse("`messages` must be an array.")
+	}
+
+	const model = requireModel(body.model)
+	if (!model) {
+		emitRequestLog(logger, {
+			type: "anthropic_error",
+			requestId,
+			path: "/v1/messages",
+			durationMs: Date.now() - startedAt,
+			message: "`model` must be a non-empty string.",
+		})
+		return toErrorResponse("`model` must be a non-empty string.")
 	}
 
 	emitRequestLog(logger, {
@@ -444,7 +550,7 @@ export const handleAnthropicMessagesRequest = async (
 
 	try {
 		const result = await generateText({
-			model: runtime.modelFactory(body.model ?? runtime.defaultModel),
+			model: runtime.modelFactory(model),
 			messages: toAnthropicModelMessages(body),
 			tools: createAnthropicToolSet(body.tools),
 			toolChoice: toAnthropicToolChoice(body.tool_choice),
@@ -476,7 +582,7 @@ export const handleAnthropicMessagesRequest = async (
 				id: `msg_${crypto.randomUUID()}`,
 				type: "message",
 				role: "assistant",
-				model: body.model ?? runtime.defaultModel,
+				model,
 				content: toAnthropicResponseContent(result),
 				stop_reason: toAnthropicStopReason(result.finishReason),
 				stop_sequence: null,
@@ -504,6 +610,38 @@ export const handleAnthropicMessagesRequest = async (
 	}
 }
 
+export const handleAnthropicCountTokensRequest = async (
+	request: Request,
+	runtime: BridgeRuntime,
+): Promise<Response> => {
+	const body = withAnthropicRequestHeaders(
+		request,
+		(await request.json()) as AnthropicCountTokensRequest,
+	)
+
+	if (!isRecord(body) || !Array.isArray(body.messages)) {
+		return toErrorResponse("`messages` must be an array.")
+	}
+
+	if (runtime.requestAnthropicCountTokens) {
+		return copyUpstreamResponse(
+			await runtime.requestAnthropicCountTokens(
+				body,
+				request.headers,
+				request.signal,
+			),
+		)
+	}
+
+	return toJsonResponse(
+		{
+			input_tokens: estimateAnthropicInputTokens(body),
+		},
+		200,
+		anthropicHeaders,
+	)
+}
+
 const streamAnthropicMessages = async (
 	request: AnthropicMessageRequest,
 	runtime: BridgeRuntime,
@@ -513,8 +651,9 @@ const streamAnthropicMessages = async (
 		startedAt: number
 	},
 ): Promise<Response> => {
+	const model = request.model as string
 	const result = streamText({
-		model: runtime.modelFactory(request.model ?? runtime.defaultModel),
+		model: runtime.modelFactory(model),
 		messages: toAnthropicModelMessages(request),
 		tools: createAnthropicToolSet(request.tools),
 		toolChoice: toAnthropicToolChoice(request.tool_choice),
@@ -544,7 +683,7 @@ const streamAnthropicMessages = async (
 						id: messageId,
 						type: "message",
 						role: "assistant",
-						model: request.model ?? runtime.defaultModel,
+						model,
 						content: [],
 						stop_reason: null,
 						stop_sequence: null,

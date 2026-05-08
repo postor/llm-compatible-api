@@ -60,13 +60,13 @@ For API-key upstreams, the interactive wizard asks for the key directly. Env
 vars are still supported for direct `serve` usage and `.env`-driven startup.
 The wizard also asks for the source API key mode:
 
-- Use the upstream API key for local clients.
 - Use a separate local client API key.
 - Bypass the local client Bearer key to the upstream as the source key.
 - Allow local requests without a client key.
 
 When a client key is configured or bypass mode is enabled, requests to the local
-endpoints must send `Authorization: Bearer <key>`.
+endpoints must send `Authorization: Bearer <key>`. Claude Code style
+`x-api-key: <key>` requests are also accepted.
 
 After saving, the wizard shows a final action menu. `Test profile` sends a
 `hello` message and checks whether the upstream returns a response; `End setup`
@@ -107,8 +107,6 @@ Supported direct-start env vars:
 - `LLM_COMPATIBLE_API_UPSTREAM_API_FORMAT`
 - `LLM_COMPATIBLE_API_HOST`
 - `LLM_COMPATIBLE_API_PORT`
-- `LLM_COMPATIBLE_API_MODELS`
-- `LLM_COMPATIBLE_API_DEFAULT_MODEL`
 - `LLM_COMPATIBLE_API_EXPOSED_API_KEY`
 - `LLM_COMPATIBLE_API_CLIENT_API_KEY_MODE`
 - `LLM_COMPATIBLE_API_HEADERS`
@@ -120,7 +118,7 @@ Direct-start env is used when `LLM_COMPATIBLE_API_SOURCE` and
 Chat Completions format unless `LLM_COMPATIBLE_API_UPSTREAM_API_FORMAT` is set.
 Set `LLM_COMPATIBLE_API_EXPOSED_API_KEY` to require a Bearer key from local
 proxy clients. Set `LLM_COMPATIBLE_API_CLIENT_API_KEY_MODE=bypass` to use each
-client request's Bearer key as the upstream source API key.
+client request's Bearer key or `x-api-key` value as the upstream source API key.
 Otherwise, env is ignored and the saved interactive profile can be used. CLI
 flags override env vars.
 

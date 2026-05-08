@@ -11,7 +11,10 @@ export const testProfileWithHello = async (
 	preferredModel?: string,
 ): Promise<ProfileHelloTestResult> => {
 	const models = await runtime.resolveModels()
-	const model = preferredModel ?? models[0] ?? runtime.defaultModel
+	const model = preferredModel ?? models[0]
+	if (!model) {
+		throw new Error("Profile test could not resolve a model from upstream.")
+	}
 	if (runtime.upstreamApiFormat === "chat" && runtime.requestChatCompletion) {
 		const response = await runtime.requestChatCompletion({
 			model,

@@ -55,7 +55,6 @@ describe("llm-compatible-api cli", () => {
 		const runtime = {
 			sourceKind: "openai",
 			upstreamApiFormat: "responses",
-			defaultModel: "gpt-test",
 			modelFactory: vi.fn(),
 			resolveModels: vi.fn(async () => ["gpt-test"]),
 			supportsOpenAIResponses: true,
@@ -107,7 +106,7 @@ describe("llm-compatible-api cli", () => {
 			expect(consoleLog).toHaveBeenCalledWith(
 				"Testing profile with hello against https://example.test/v1 (responses)...",
 			)
-			expect(testProfileWithHello).toHaveBeenCalledWith(runtime, undefined)
+			expect(testProfileWithHello).toHaveBeenCalledWith(runtime)
 			expect(consoleLog).toHaveBeenCalledWith(
 				'Profile test passed with model "gpt-test".',
 			)
@@ -141,7 +140,6 @@ describe("llm-compatible-api cli", () => {
 		const runtime = {
 			sourceKind: "openai",
 			upstreamApiFormat: "chat",
-			defaultModel: "gpt-test",
 			modelFactory: vi.fn(),
 			resolveModels: vi.fn(async () => ["gpt-test"]),
 			supportsOpenAIResponses: false,
@@ -208,8 +206,6 @@ describe("llm-compatible-api cli", () => {
 			"0.0.0.0",
 			"--port",
 			"9999",
-			"--models",
-			"gpt-5.4,gpt-5.3-codex",
 			"--codex-version",
 			"0.114.0",
 			"--base-url",
@@ -229,7 +225,6 @@ describe("llm-compatible-api cli", () => {
 		expect(toServerOptions(parsed)).toMatchObject({
 			host: "0.0.0.0",
 			port: 9999,
-			models: ["gpt-5.4", "gpt-5.3-codex"],
 			codexVersion: "0.114.0",
 			baseURL: "https://example.com/codex",
 			clientId: "client-123",
@@ -238,11 +233,6 @@ describe("llm-compatible-api cli", () => {
 			upstreamApiFormat: "chat",
 			exposedApiKey: "sk-local-client-key",
 		})
-	})
-
-	test("drops empty model entries", () => {
-		const parsed = parseCliArgs(["--models", "gpt-5.4, ,gpt-5.2,,"])
-		expect(parsed.models).toEqual(["gpt-5.4", "gpt-5.2"])
 	})
 
 	test("formats the default startup message for local usage", () => {
@@ -305,8 +295,6 @@ describe("llm-compatible-api cli", () => {
 				LLM_COMPATIBLE_API_API_KEY: "sk-env-key",
 				LLM_COMPATIBLE_API_HOST: "0.0.0.0",
 				LLM_COMPATIBLE_API_PORT: "12345",
-				LLM_COMPATIBLE_API_MODELS: "gpt-env-a,gpt-env-b",
-				LLM_COMPATIBLE_API_DEFAULT_MODEL: "gpt-env-a",
 				LLM_COMPATIBLE_API_EXPOSED_API_KEY: "sk-env-client-key",
 				LLM_COMPATIBLE_API_UPSTREAM_API_FORMAT: "chat",
 				LLM_COMPATIBLE_API_HEADERS: "x-env=yes,x-shared=env",
@@ -320,8 +308,6 @@ describe("llm-compatible-api cli", () => {
 					apiKey: "sk-env-key",
 					host: "0.0.0.0",
 					port: 12345,
-					models: ["gpt-env-a", "gpt-env-b"],
-					defaultModel: "gpt-env-a",
 					exposedApiKey: "sk-env-client-key",
 					upstreamApiFormat: "chat",
 					headers: {

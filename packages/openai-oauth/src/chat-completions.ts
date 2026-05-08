@@ -26,6 +26,11 @@ const isChatRequest = (value: unknown): value is ChatRequest =>
 	isRecord(value) &&
 	(value.messages === undefined || Array.isArray(value.messages))
 
+const requireModel = (model: string | undefined): string | undefined =>
+	typeof model === "string" && model.trim().length > 0
+		? model.trim()
+		: undefined
+
 const toChatCompletionResponse = (
 	result: ChatCompletionResultShape,
 	request: ChatRequest,
@@ -79,6 +84,18 @@ export const handleChatCompletionsRequest = async (
 		return toErrorResponse("`messages` must be an array.")
 	}
 
+	const model = requireModel(body.model)
+	if (!model) {
+		emitRequestLog(logger, {
+			type: "chat_error",
+			requestId,
+			path: "/v1/chat/completions",
+			durationMs: Date.now() - startedAt,
+			message: "`model` must be a non-empty string.",
+		})
+		return toErrorResponse("`model` must be a non-empty string.")
+	}
+
 	emitRequestLog(logger, {
 		type: "chat_request",
 		requestId,
@@ -112,7 +129,7 @@ export const handleChatCompletionsRequest = async (
 
 	try {
 		const result = await generateText({
-			model: runtime.modelFactory(body.model ?? runtime.defaultModel),
+			model: runtime.modelFactory(model),
 			messages: toModelMessages(body.messages),
 			tools: createToolSet(body.tools),
 			toolChoice: toToolChoice(body.tool_choice),

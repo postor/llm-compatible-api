@@ -85,8 +85,9 @@ export const toStartupMessage = (
 			"Use the /v1 base URL for OpenAI clients and the root URL for Anthropic clients.",
 			options,
 		),
-		"",
-		`Available Models: ${availableModels.join(", ")}`,
+		...(availableModels.length > 0
+			? ["", `Available Models: ${availableModels.join(", ")}`]
+			: []),
 	].join("\n")
 
 export const installCliWarningLogger = (): void => {

@@ -148,6 +148,11 @@ export type AnthropicMessageRequest = {
 	}
 }
 
+export type AnthropicCountTokensRequest = Omit<
+	AnthropicMessageRequest,
+	"stream" | "max_tokens" | "temperature" | "top_p" | "stop_sequences"
+>
+
 export type ChatRequestSummary = {
 	bodyKeys: string[]
 	messageCount: number
@@ -241,8 +246,6 @@ export type StoredBridgeProfile = {
 	clientId?: string
 	tokenUrl?: string
 	codexVersion?: string
-	models?: string[]
-	defaultModel?: string
 	host?: string
 	port?: number
 	headers?: Record<string, string>
@@ -264,7 +267,6 @@ export type OpenAIOAuthServerOptions = Omit<
 	codexVersion?: string
 	sourceKind?: BridgeSourceKind
 	upstreamApiFormat?: OpenAICompatibleApiFormat
-	defaultModel?: string
 	apiKey?: string
 	apiKeyEnvVar?: string
 	authToken?: string
@@ -281,13 +283,17 @@ export type BridgeRuntime = {
 	upstreamApiFormat?: OpenAICompatibleApiFormat
 	modelFactory: BridgeModelFactory
 	resolveModels: () => Promise<string[]>
-	defaultModel: string
 	supportsOpenAIResponses: boolean
 	requestOpenAIResponses?: (
 		body: Record<string, unknown>,
 		signal?: AbortSignal,
 	) => Promise<Response>
 	requestChatCompletion?: (body: ChatRequest) => Promise<Response>
+	requestAnthropicCountTokens?: (
+		body: AnthropicCountTokensRequest,
+		headers?: Headers,
+		signal?: AbortSignal,
+	) => Promise<Response>
 }
 
 export type RunningOpenAIOAuthServer = {

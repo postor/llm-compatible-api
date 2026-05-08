@@ -7,6 +7,7 @@ import {
 import { createOpenAIOAuth } from "../../openai-oauth-provider/src/index.js"
 import { createModelResolver } from "./models.js"
 import type {
+	AnthropicCountTokensRequest,
 	BridgeRuntime,
 	BridgeSourceKind,
 	OpenAIOAuthServerOptions,
@@ -38,15 +39,6 @@ const resolveSourceKind = (
 	return "openai"
 }
 
-const resolveOpenAIDefaultModel = (
-	settings: OpenAIOAuthServerOptions,
-): string => settings.defaultModel ?? settings.models?.[0] ?? "gpt-5.2"
-
-const resolveAnthropicDefaultModel = (
-	settings: OpenAIOAuthServerOptions,
-): string =>
-	settings.defaultModel ?? settings.models?.[0] ?? "claude-sonnet-4-6"
-
 const resolveConfiguredSecret = (
 	explicitValue: string | undefined,
 	envVarName: string | undefined,
@@ -67,10 +59,18 @@ const resolveConfiguredSecret = (
 
 const toAnthropicHeaders = (
 	settings: OpenAIOAuthServerOptions,
+	requestHeaders?: Headers,
 ): Record<string, string> => {
 	const headers: Record<string, string> = {
 		"anthropic-version":
-			settings.headers?.["anthropic-version"] ?? "2023-06-01",
+			requestHeaders?.get("anthropic-version") ??
+			settings.headers?.["anthropic-version"] ??
+			"2023-06-01",
+	}
+
+	const betaHeader = requestHeaders?.get("anthropic-beta")
+	if (betaHeader) {
+		headers["anthropic-beta"] = betaHeader
 	}
 
 	const authToken = resolveConfiguredSecret(
@@ -99,6 +99,29 @@ const toAnthropicHeaders = (
 	}
 
 	return headers
+}
+
+const requestAnthropicCountTokens = async (
+	settings: OpenAIOAuthServerOptions,
+	body: AnthropicCountTokensRequest,
+	headers: Headers | undefined,
+	signal: AbortSignal | undefined,
+): Promise<Response> => {
+	const baseURL =
+		withoutTrailingSlash(settings.baseURL) ?? ANTHROPIC_DEFAULT_BASE_URL
+
+	return (settings.fetch ?? globalThis.fetch)(
+		`${baseURL}/messages/count_tokens`,
+		{
+			method: "POST",
+			headers: {
+				...toAnthropicHeaders(settings, headers),
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify(body),
+			signal,
+		},
+	)
 }
 
 const createAnthropicModelResolver = (
@@ -200,7 +223,6 @@ const createOpenAIRuntime = (
 		upstreamApiFormat,
 		modelFactory: (modelId) => provider(modelId),
 		resolveModels,
-		defaultModel: resolveOpenAIDefaultModel(settings),
 		supportsOpenAIResponses: upstreamApiFormat !== "chat",
 		requestOpenAIResponses:
 			upstreamApiFormat === "chat"
@@ -251,8 +273,9 @@ const createAnthropicRuntime = (
 		upstreamApiFormat: undefined,
 		modelFactory: (modelId) => provider(modelId),
 		resolveModels: createAnthropicModelResolver(settings),
-		defaultModel: resolveAnthropicDefaultModel(settings),
 		supportsOpenAIResponses: false,
+		requestAnthropicCountTokens: (body, headers, signal) =>
+			requestAnthropicCountTokens(settings, body, headers, signal),
 	}
 }
 
