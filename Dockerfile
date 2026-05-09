@@ -8,9 +8,8 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.js
 COPY packages/openai-oauth/package.json ./packages/openai-oauth/package.json
 COPY packages/openai-oauth-core/package.json ./packages/openai-oauth-core/package.json
 COPY packages/openai-oauth-provider/package.json ./packages/openai-oauth-provider/package.json
-
-RUN pnpm install --frozen-lockfile
 COPY packages ./packages
+RUN pnpm install --frozen-lockfile
 RUN pnpm run build
 
 FROM node:22-alpine AS runtime

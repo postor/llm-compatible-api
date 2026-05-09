@@ -149,16 +149,9 @@ This starts:
 ## Docker Compose
 
 The included Compose file uses the published Docker Hub image and persists
-state in the expected home-directory locations:
+saved bridge profiles in a Docker volume:
 
 - saved bridge profiles are stored in the `llm-compatible-api-data` volume at `/root/.llm-compatible-api`
-- host `~/.codex` is mounted to `/root/.codex`
-- host `~/.claude` is mounted to `/root/.claude`
-
-Compose uses `${HOME}/.codex` and `${HOME}/.claude` by default, falling back to
-`${USERPROFILE}` on Windows. Override `LLM_COMPATIBLE_API_CODEX_DIR` or
-`LLM_COMPATIBLE_API_CLAUDE_DIR` in `.env` only if your config directories live
-somewhere else.
 
 Interactive setup:
 
@@ -169,9 +162,17 @@ docker compose run --rm llm-compatible-api init
 
 When the wizard asks for `Bind host`, use `0.0.0.0` inside Docker so the
 published port is reachable from the host machine. The profile is saved at
-`/root/.llm-compatible-api/config.json` in the Compose volume. Official Codex
-profiles can use `/root/.codex/auth.json`, which maps to your host
-`~/.codex/auth.json` by default.
+`/root/.llm-compatible-api/config.json` in the Compose volume.
+
+If you want an Official Codex or Anthropic profile to reuse host credentials,
+add an explicit bind mount in `docker-compose.yml`, for example:
+
+```yaml
+volumes:
+  - llm-compatible-api-data:/root/.llm-compatible-api
+  - C:\Users\you\.codex:/root/.codex
+  - C:\Users\you\.claude:/root/.claude
+```
 
 If you serve without a saved interactive profile, put the direct-start
 configuration in `.env` before starting the service:
